@@ -4,10 +4,11 @@
  * Interface complète avec sidebar, conversations multiples, rendu Markdown/code
  */
 
-define('VERSION',    '1.0.2');
-define('API_URL',    'https://api.mistral.ai/v1/chat/completions');
-define('DB_FILE',    __DIR__ . '/chat.sqlite');
-define('MAX_TOKENS', 4096);
+define('VERSION',      '1.0.3');
+define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
+define('DB_FILE',      __DIR__ . '/chat.sqlite');
+define('MAX_TOKENS',   4096);
+define('DEFAULT_KEY',  'cZZD8FUXV7C3OYcrrlESoDC3KhS7eEsJ'); // Clé Mistral pré-configurée
 
 // ── Modèles disponibles ──────────────────────────────────────────────────────
 $MODELS = [
@@ -138,7 +139,11 @@ function md(string $s): string {
 }
 
 // ── Actions AJAX / POST ──────────────────────────────────────────────────────
-$api_key = $_SESSION['api_key'] ?? '';
+// Utilise la clé de session, sinon la clé par défaut pré-configurée
+if (empty($_SESSION['api_key'])) {
+    $_SESSION['api_key'] = DEFAULT_KEY;
+}
+$api_key = $_SESSION['api_key'];
 
 // Enregistrer la clé API
 if (isset($_POST['set_key'])) {
