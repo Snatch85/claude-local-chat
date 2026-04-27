@@ -1,0 +1,107 @@
+name: 🤖 AutoChat — Amélioration nocturne
+
+on:
+  schedule:
+    - cron: '30 3 * * *'   # 3h30 UTC (= 5h30 heure française)
+  workflow_dispatch:         # bouton manuel sur GitHub
+
+jobs:
+  improve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: Lire la directive
+        id: directive
+        run: |
+          GOAL=$(php .github/improve.php)
+          echo "GOAL<<EOF" >> $GITHUB_OUTPUT
+          echo "$GOAL" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Lire le fichier source
+        id: source
+        run: |
+          SOURCE=$(cat index.php)
+          echo "SOURCE<<EOF_SOURCE" >> $GITHUB_OUTPUT
+          echo "$SOURCE" >> $GITHUB_OUTPUT
+          echo "EOF_SOURCE" >> $GITHUB_OUTPUT
+
+      - name: Appeler Mistral pour améliorer
+        id: improve
+        run: |
+          GOAL="${{ steps.directive.outputs.GOAL }}"
+          SOURCE=$(cat index.php)
+
+          PAYLOAD=$(jq -n \
+            --arg goal "$GOAL" \
+            --arg source "$SOURCE" \
+            '{
+              model: "mistral-small-latest",
+              max_tokens: 16000,
+              temperature: 0.3,
+              messages: [
+                {role: "system", content: ($goal)},
+                {role: "user", content: ("Voici le fichier index.php actuel à améliorer :\n\n" + $source + "\n\nRetourne le fichier complet amélioré.")}
+              ]
+            }')
+
+          RESPONSE=$(curl -s -X POST https://api.mistral.ai/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.MISTRAL_API_KEY }}" \
+            --max-time 300 \
+            -d "$PAYLOAD")
+
+          NEW_CODE=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+
+          if [ -z "$NEW_CODE" ]; then
+            echo "❌ Réponse vide de l'API"
+            echo "$RESPONSE"
+            exit 1
+          fi
+
+          echo "$NEW_CODE" > index_new.php
+
+      - name: Vérifier la syntaxe PHP
+        run: |
+          php -l index_new.php
+          if [ $? -ne 0 ]; then
+            echo "❌ Erreur de syntaxe PHP — abandon"
+            exit 1
+          fi
+          echo "✅ Syntaxe PHP valide"
+
+      - name: Vérifier taille (anti-troncature)
+        run: |
+          SIZE_OLD=$(wc -c < index.php)
+          SIZE_NEW=$(wc -c < index_new.php)
+          MIN=$((SIZE_OLD * 70 / 100))
+          echo "Ancien: ${SIZE_OLD} octets | Nouveau: ${SIZE_NEW} octets | Min requis: ${MIN}"
+          if [ "$SIZE_NEW" -lt "$MIN" ]; then
+            echo "❌ Fichier trop court (troncature détectée) — abandon"
+            exit 1
+          fi
+          echo "✅ Taille OK"
+
+      - name: Appliquer les changements
+        run: |
+          cp index_new.php index.php
+          rm -f index_new.php
+
+      - name: Commit et push
+        run: |
+          git config user.name  "AutoChat Bot"
+          git config user.email "autochat@github-actions"
+          git add index.php
+          git diff --staged --quiet && echo "Pas de changement" && exit 0
+          DATE=$(date '+%Y-%m-%d %H:%M')
+          git commit -m "🤖 AutoChat amélioration nocturne — $DATE"
+          git push
