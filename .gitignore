@@ -1,0 +1,13 @@
+# Base de données SQLite locale (générée automatiquement)
+chat.sqlite
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Fichiers temporaires
+*.tmp
+*_new.php
