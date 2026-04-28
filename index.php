@@ -4,7 +4,7 @@
  * Interface complète avec sidebar, conversations multiples, rendu Markdown/code
  */
 
-define('VERSION',      '1.0.9');
+define('VERSION',      '1.1.0');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   4096);
@@ -12,9 +12,10 @@ define('DEFAULT_KEY',  'cZZD8FUXV7C3OYcrrlESoDC3KhS7eEsJ'); // Clé Mistral pré
 
 // ── Modèles disponibles ──────────────────────────────────────────────────────
 $MODELS = [
-    'mistral-large-latest'  => ['label' => 'Mistral Large',  'desc' => 'Plus intelligent'],
-    'mistral-small-latest'  => ['label' => 'Mistral Small',  'desc' => 'Plus rapide'],
-    'codestral-latest'      => ['label' => 'Codestral',      'desc' => 'Expert code'],
+    'mistral-large-latest'  => ['label' => 'Mistral Large',   'desc' => 'Plus intelligent'],
+    'mistral-small-latest'  => ['label' => 'Mistral Small',   'desc' => 'Plus rapide'],
+    'codestral-latest'      => ['label' => 'Codestral',       'desc' => 'Expert code'],
+    'pixtral-large-latest'  => ['label' => 'Pixtral Large 🖼️', 'desc' => 'Lit les images'],
 ];
 
 // ── Personnalités ────────────────────────────────────────────────────────────
@@ -200,8 +201,10 @@ if (isset($_GET['api'])) {
 
     // Envoyer un message
     if ($act === 'send') {
-        $conv_id = (int)($_POST['conv_id'] ?? 0);
-        $content = trim($_POST['content'] ?? '');
+        $conv_id   = (int)($_POST['conv_id'] ?? 0);
+        $content   = trim($_POST['content'] ?? '');
+        $image_b64 = trim($_POST['image_b64'] ?? '');
+        $image_mime= trim($_POST['image_mime'] ?? 'image/png');
         if (!$conv_id || !$content || !$api_key) {
             echo json_encode(['success' => false, 'error' => 'Paramètres manquants ou clé API non configurée']);
             exit;
@@ -237,6 +240,18 @@ if (isset($_GET['api'])) {
         foreach ($history->fetchAll(PDO::FETCH_ASSOC) as $m) {
             $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
         }
+        // Si image jointe — utiliser Pixtral et message multimodal
+        if ($image_b64) {
+            $conv['model'] = 'pixtral-large-latest';
+            array_pop($api_messages);
+            $api_messages[] = [
+                'role'    => 'user',
+                'content' => [
+                    ['type' => 'text',       'text'      => $content],
+                    ['type' => 'image_url',  'image_url' => ['url' => 'data:' . $image_mime . ';base64,' . $image_b64]],
+                ]
+            ];
+        }
 
         // Appel Mistral
         $payload = json_encode([
@@ -269,7 +284,6 @@ if (isset($_GET['api'])) {
         $reply = trim($data['choices'][0]['message']['content'] ?? '');
         if (!$reply) { echo json_encode(['success' => false, 'error' => 'Réponse vide']); exit; }
 
-        // Sauvegarder la réponse
         db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")
             ->execute([$conv_id, 'assistant', $reply]);
 
@@ -285,10 +299,8 @@ if (isset($_GET['api'])) {
             exit;
         }
 
-        // Supprimer le dernier message assistant
         db()->prepare("DELETE FROM messages WHERE conversation_id=? AND role='assistant' ORDER BY id DESC LIMIT 1")->execute([$conv_id]);
 
-        // Récupérer le dernier message utilisateur
         $last_user = db()->prepare("SELECT content FROM messages WHERE conversation_id=? AND role='user' ORDER BY id DESC LIMIT 1");
         $last_user->execute([$conv_id]);
         $last_user = $last_user->fetchColumn();
@@ -297,13 +309,11 @@ if (isset($_GET['api'])) {
             exit;
         }
 
-        // Récupérer la conversation
         $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
         $conv->execute([$conv_id]);
         $conv = $conv->fetch(PDO::FETCH_ASSOC);
         if (!$conv) { echo json_encode(['success' => false, 'error' => 'Conversation introuvable']); exit; }
 
-        // Construire les messages pour l'API
         global $PERSONAS;
         $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
         $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
@@ -313,7 +323,6 @@ if (isset($_GET['api'])) {
             $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
         }
 
-        // Appel Mistral
         $payload = json_encode([
             'model'       => $conv['model'],
             'messages'    => $api_messages,
@@ -344,7 +353,6 @@ if (isset($_GET['api'])) {
         $reply = trim($data['choices'][0]['message']['content'] ?? '');
         if (!$reply) { echo json_encode(['success' => false, 'error' => 'Réponse vide']); exit; }
 
-        // Sauvegarder la réponse
         db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")
             ->execute([$conv_id, 'assistant', $reply]);
 
@@ -365,6 +373,7 @@ $conversations = db()->query("SELECT * FROM conversations ORDER BY updated_at DE
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ClaudeLocal</title>
+<<<<<<< HEAD
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -865,6 +874,10 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
   .msg-group{padding:.25rem 1rem}
 }
 </style>
+=======
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+>>>>>>> cf6a6bc (🗂️ Split index.php en 3 fichiers (index.php + style.css + app.js))
 </head>
 <body>
 
@@ -929,7 +942,12 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
       <?php endforeach; ?>
     </select>
     <button class="hamburger" onclick="toggleFocusMode()" title="Mode focus">⛶</button>
+<<<<<<< HEAD
     <button class="hamburger" onclick="toggleDarkMode()" title="Mode sombre" id="darkModeToggle">🌙</button>
+=======
+    <button class="topbar-btn" onclick="captureScreen()" title="Capturer la conversation">📸</button>
+    <button class="topbar-btn" onclick="toggleDarkMode()" title="Mode sombre" id="darkModeToggle">🌙</button>
+>>>>>>> cf6a6bc (🗂️ Split index.php en 3 fichiers (index.php + style.css + app.js))
   </div>
 
   <!-- Zone chat ou welcome -->
@@ -957,8 +975,17 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
       <textarea id="msgInput" rows="1"
         placeholder="Envoyer un message… (Entrée pour envoyer, Maj+Entrée pour nouvelle ligne, Ctrl+N nouvelle conversation, Ctrl+/ focus input)"
         onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCount(this)"></textarea>
+      <div id="imgPreviewBar" style="display:none;padding:.4rem 1rem .2rem;border-top:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <img id="imgPreview" style="height:48px;border-radius:6px;border:1px solid var(--border)">
+          <span id="imgPreviewName" style="font-size:.75rem;color:var(--muted);flex:1"></span>
+          <button onclick="removeImage()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.9rem" title="Supprimer">✕</button>
+        </div>
+      </div>
       <div class="input-toolbar">
         <span class="char-count" id="charCount">0 / 4000</span>
+        <input type="file" id="imgInput" accept="image/*" style="display:none" onchange="handleImageSelect(this)">
+        <button class="topbar-btn" onclick="document.getElementById('imgInput').click()" title="Joindre une image" style="width:30px;height:30px;font-size:.85rem">📎</button>
         <span class="input-hint-txt" id="convInfo" style="display:none">Crée ou sélectionne une conversation</span>
         <button class="send-btn" id="sendBtn" onclick="sendMsg()" disabled title="Envoyer (Entrée)">➤</button>
       </div>
@@ -983,6 +1010,7 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
 </div>
 
 <script>
+<<<<<<< HEAD
 const API_KEY_SET = <?= $api_key ? 'true' : 'false' ?>;
 let currentConvId = null;
 let sending = false;
@@ -1400,6 +1428,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (id) loadConv(id);
     }
 });
+=======
+// Passer les variables PHP vers JS
+window._API_KEY_SET = <?= $api_key ? 'true' : 'false' ?>;
+>>>>>>> cf6a6bc (🗂️ Split index.php en 3 fichiers (index.php + style.css + app.js))
 </script>
+<script src="app.js"></script>
 </body>
 </html>
