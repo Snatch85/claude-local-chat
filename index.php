@@ -4,7 +4,7 @@
  * Interface complète avec sidebar, conversations multiples, rendu Markdown/code
  */
 
-define('VERSION',      '1.0.3');
+define('VERSION',      '1.0.4');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   4096);
@@ -277,6 +277,81 @@ if (isset($_GET['api'])) {
         exit;
     }
 
+    // Régénérer la dernière réponse
+    if ($act === 'regenerate') {
+        $conv_id = (int)($_POST['conv_id'] ?? 0);
+        if (!$conv_id) {
+            echo json_encode(['success' => false, 'error' => 'Paramètres manquants']);
+            exit;
+        }
+
+        // Supprimer le dernier message assistant
+        db()->prepare("DELETE FROM messages WHERE conversation_id=? AND role='assistant' ORDER BY id DESC LIMIT 1")->execute([$conv_id]);
+
+        // Récupérer le dernier message utilisateur
+        $last_user = db()->prepare("SELECT content FROM messages WHERE conversation_id=? AND role='user' ORDER BY id DESC LIMIT 1");
+        $last_user->execute([$conv_id]);
+        $last_user = $last_user->fetchColumn();
+        if (!$last_user) {
+            echo json_encode(['success' => false, 'error' => 'Aucun message utilisateur trouvé']);
+            exit;
+        }
+
+        // Récupérer la conversation
+        $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
+        $conv->execute([$conv_id]);
+        $conv = $conv->fetch(PDO::FETCH_ASSOC);
+        if (!$conv) { echo json_encode(['success' => false, 'error' => 'Conversation introuvable']); exit; }
+
+        // Construire les messages pour l'API
+        global $PERSONAS;
+        $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
+        $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
+        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id");
+        $history->execute([$conv_id]);
+        foreach ($history->fetchAll(PDO::FETCH_ASSOC) as $m) {
+            $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
+        }
+
+        // Appel Mistral
+        $payload = json_encode([
+            'model'       => $conv['model'],
+            'messages'    => $api_messages,
+            'max_tokens'  => MAX_TOKENS,
+            'temperature' => 0.7,
+        ]);
+        $ch = curl_init(API_URL);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 300,
+        ]);
+        $raw  = curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+
+        if ($cerr) { echo json_encode(['success' => false, 'error' => 'Réseau : ' . $cerr]); exit; }
+        if ($http >= 400) {
+            $d = json_decode($raw, true);
+            echo json_encode(['success' => false, 'error' => 'API ' . $http . ' : ' . ($d['message'] ?? substr($raw,0,200))]);
+            exit;
+        }
+
+        $data  = json_decode($raw, true);
+        $reply = trim($data['choices'][0]['message']['content'] ?? '');
+        if (!$reply) { echo json_encode(['success' => false, 'error' => 'Réponse vide']); exit; }
+
+        // Sauvegarder la réponse
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")
+            ->execute([$conv_id, 'assistant', $reply]);
+
+        echo json_encode(['success' => true, 'reply' => $reply]);
+        exit;
+    }
+
     echo json_encode(['success' => false, 'error' => 'Action inconnue']);
     exit;
 }
@@ -370,6 +445,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 .topbar{
   background:var(--surface);border-bottom:1px solid var(--border);
   padding:.7rem 1.5rem;display:flex;align-items:center;gap:1rem;flex-shrink:0;
+  position:relative;
 }
 .topbar-title{font-size:.9rem;font-weight:600;color:var(--text);flex:1;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -447,6 +523,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 .msg-content{flex:1;min-width:0}
 .msg-name{font-size:.75rem;font-weight:600;color:var(--muted);margin-bottom:.3rem}
 .msg-text{font-size:.9rem;line-height:1.75;color:var(--text)}
+.msg-time{font-size:.65rem;color:var(--muted);margin-top:.3rem;text-align:right}
 
 /* Markdown */
 .msg-text h1{font-size:1.2rem;font-weight:700;margin:1rem 0 .4rem;color:var(--text)}
@@ -531,7 +608,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
   background:var(--accent);border:none;color:white;
   width:34px;height:34px;border-radius:8px;
   display:flex;align-items:center;justify-content:center;
-  cursor:pointer;font-size:1rem;transition:.15s;flex-shrink:0;
+  cursor:pointer;font-size:1rem;transition:.1s;flex-shrink:0;
 }
 .send-btn:hover:not(:disabled){background:var(--accent2);transform:translateY(-1px)}
 .send-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}
@@ -540,7 +617,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 .msg-copy-btn{
   display:none;background:none;border:1px solid var(--border);border-radius:6px;
   color:var(--muted);font-size:.7rem;padding:.2rem .55rem;cursor:pointer;
-  margin-top:.35rem;font-family:var(--font);transition:.15s;
+  margin-top:.35rem;font-family:var(--font);transition:.1s;
 }
 .msg-copy-btn:hover{color:var(--accent);border-color:var(--accent)}
 .msg:hover .msg-copy-btn{display:inline-flex;align-items:center;gap:.3rem}
@@ -558,6 +635,14 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 }
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}
 .sidebar-overlay.open{display:block}
+
+/* ── Mode focus ── */
+.focus-mode .sidebar{display:none}
+.focus-mode .main{width:100%}
+.focus-mode .topbar{display:none}
+.focus-mode .chat-area{padding:0}
+.focus-mode .input-zone{padding:0 1.5rem 1.2rem}
+.focus-mode .msg-group{max-width:none}
 
 @media(max-width:700px){
   .sidebar{
@@ -632,6 +717,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
       <option value="<?= h($k) ?>"><?= h($p['icon']) ?> <?= h($p['label']) ?></option>
       <?php endforeach; ?>
     </select>
+    <button class="hamburger" onclick="toggleFocusMode()" title="Mode focus">⛶</button>
   </div>
 
   <!-- Zone chat ou welcome -->
@@ -657,7 +743,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
   <div class="input-zone">
     <div class="input-inner">
       <textarea id="msgInput" rows="1"
-        placeholder="Envoyer un message… (Entrée pour envoyer, Maj+Entrée pour nouvelle ligne)"
+        placeholder="Envoyer un message… (Entrée pour envoyer, Maj+Entrée pour nouvelle ligne, Ctrl+N nouvelle conversation, Ctrl+/ focus input)"
         onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCount(this)"></textarea>
       <div class="input-toolbar">
         <span class="char-count" id="charCount">0 / 4000</span>
@@ -688,6 +774,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 const API_KEY_SET = <?= $api_key ? 'true' : 'false' ?>;
 let currentConvId = null;
 let sending = false;
+let isFocusMode = false;
+let lastScrollPosition = 0;
 
 // ── Sidebar mobile ───────────────────────────────────────────────────────────
 function toggleSidebar() {
@@ -696,6 +784,12 @@ function toggleSidebar() {
     const isOpen   = sidebar.classList.contains('open');
     sidebar.classList.toggle('open', !isOpen);
     overlay.classList.toggle('open', !isOpen);
+}
+
+// Mode focus
+function toggleFocusMode() {
+    document.body.classList.toggle('focus-mode');
+    isFocusMode = document.body.classList.contains('focus-mode');
 }
 
 // ── Copier message ───────────────────────────────────────────────────────────
@@ -868,6 +962,46 @@ async function sendMsg() {
     scrollBottom();
 }
 
+// ── Régénérer la dernière réponse ────────────────────────────────────────────
+async function regenerate() {
+    if (sending || !currentConvId) return;
+
+    sending = true;
+    document.getElementById('sendBtn').disabled = true;
+
+    // Indicateur "en train de réfléchir"
+    const thinkId = 'think-regenerate-' + Date.now();
+    appendThinking(thinkId);
+    scrollBottom();
+
+    try {
+        const r = await fetch('?api=regenerate', {
+            method:'POST',
+            headers:{'Content-Type':'application/x-www-form-urlencoded'},
+            body:`conv_id=${currentConvId}`
+        });
+        const d = await r.json();
+        removeThinking(thinkId);
+
+        if (d.success) {
+            // Supprimer le dernier message assistant
+            const lastAssistantMsg = document.querySelector('.msg:last-child .msg-avatar.ai')?.closest('.msg');
+            if (lastAssistantMsg) lastAssistantMsg.remove();
+
+            appendMessage('assistant', d.reply);
+        } else {
+            appendError(d.error || 'Erreur inconnue');
+        }
+    } catch(e) {
+        removeThinking(thinkId);
+        appendError('Erreur réseau : ' + e.message);
+    }
+
+    sending = false;
+    document.getElementById('sendBtn').disabled = !API_KEY_SET;
+    scrollBottom();
+}
+
 // ── Afficher un message ──────────────────────────────────────────────────────
 function appendMessage(role, content, scroll=true) {
     const container = document.getElementById('msgContainer');
@@ -881,12 +1015,17 @@ function appendMessage(role, content, scroll=true) {
         : renderMd(content);
 
     const rawText = content;
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
     div.innerHTML = `
       <div class="msg-avatar ${avClass}">${avatar}</div>
       <div class="msg-content">
         <div class="msg-name">${name}</div>
         <div class="msg-text">${rendered}</div>
+        <div class="msg-time">${timeStr}</div>
         <button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copier</button>
+        ${role === 'assistant' ? '<button class="msg-copy-btn" onclick="regenerate()" style="margin-left:.5rem">🔄 Régénérer</button>' : ''}
       </div>`;
     container.appendChild(div);
     if (scroll) scrollBottom();
@@ -982,10 +1121,24 @@ function esc(s) {
 }
 function scrollBottom() {
     const ca = document.getElementById('chatArea');
-    if (ca) setTimeout(() => ca.scrollTop = ca.scrollHeight, 50);
+    if (ca) {
+        // Ne pas scroller si l'utilisateur est en haut
+        if (ca.scrollTop + ca.clientHeight >= ca.scrollHeight - 10) {
+            setTimeout(() => ca.scrollTop = ca.scrollHeight, 50);
+        }
+    }
 }
 function handleKey(e) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+    if (e.ctrlKey && e.key === 'n') {
+        e.preventDefault();
+        newConv();
+    } else if (e.ctrlKey && e.key === '/') {
+        e.preventDefault();
+        document.getElementById('msgInput').focus();
+    } else if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMsg();
+    }
 }
 function autoResize(el) {
     el.style.height = 'auto';
