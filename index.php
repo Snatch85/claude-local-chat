@@ -4,7 +4,7 @@
  * Interface complète avec sidebar, conversations multiples, rendu Markdown/code
  */
 
-define('VERSION',      '1.0.7');
+define('VERSION',      '1.0.8');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   4096);
@@ -929,7 +929,7 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
       <?php endforeach; ?>
     </select>
     <button class="hamburger" onclick="toggleFocusMode()" title="Mode focus">⛶</button>
-    <button class="hamburger" onclick="toggleDarkMode()" title="Mode sombre">🌙</button>
+    <button class="hamburger" onclick="toggleDarkMode()" title="Mode sombre" id="darkModeToggle">🌙</button>
   </div>
 
   <!-- Zone chat ou welcome -->
@@ -1000,7 +1000,7 @@ function toggleDarkMode() {
 
 // Mettre à jour l'icône du bouton en fonction du thème
 function updateThemeIcon() {
-    const btn = document.querySelector('.topbar button[onclick="toggleDarkMode()"]');
+    const btn = document.getElementById('darkModeToggle');
     if (btn) {
         btn.textContent = isDarkMode ? '☀️' : '🌙';
         btn.title = isDarkMode ? 'Mode clair' : 'Mode sombre';
