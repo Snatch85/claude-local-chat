@@ -11,7 +11,7 @@ permissions:
 jobs:
   improve:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -22,38 +22,23 @@ jobs:
         with:
           php-version: '8.2'
 
-      - name: Lire la directive
-        id: directive
-        run: |
-          GOAL=$(php .github/improve.php)
-          echo "GOAL<<EOF" >> $GITHUB_OUTPUT
-          echo "$GOAL" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      - name: Lire le fichier source
-        id: source
+      # ── Améliorer index.php (PHP + HTML) ────────────────────────────────────
+      - name: Améliorer index.php
+        id: improve_php
         run: |
           SOURCE=$(cat index.php)
-          echo "SOURCE<<EOF_SOURCE" >> $GITHUB_OUTPUT
-          echo "$SOURCE" >> $GITHUB_OUTPUT
-          echo "EOF_SOURCE" >> $GITHUB_OUTPUT
-
-      - name: Appeler Mistral pour améliorer
-        id: improve
-        run: |
-          GOAL="${{ steps.directive.outputs.GOAL }}"
-          SOURCE=$(cat index.php)
+          GOAL="Tu es un expert PHP/HTML. Améliore ce fichier index.php d'une application de chat ClaudeLocal. Le fichier contient UNIQUEMENT le PHP backend et le HTML template (pas de CSS ni JS, ils sont dans style.css et app.js). Objectifs : améliore la logique PHP, les performances SQLite, la sécurité, l'accessibilité HTML, ou ajoute une fonctionnalité utile. Retourne le fichier PHP complet amélioré sans aucun commentaire avant ou après, juste le code PHP pur."
 
           PAYLOAD=$(jq -n \
             --arg goal "$GOAL" \
             --arg source "$SOURCE" \
             '{
-              model: "mistral-small-latest",
+              model: "mistral-large-latest",
               max_tokens: 16000,
               temperature: 0.3,
               messages: [
                 {role: "system", content: ($goal)},
-                {role: "user", content: ("Voici le fichier index.php actuel à améliorer :\n\n" + $source + "\n\nRetourne le fichier complet amélioré.")}
+                {role: "user", content: ("Voici le fichier index.php à améliorer :\n\n" + $source + "\n\nRetourne le fichier complet amélioré.")}
               ]
             }')
 
@@ -64,46 +49,112 @@ jobs:
             -d "$PAYLOAD")
 
           NEW_CODE=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          if [ -z "$NEW_CODE" ]; then echo "❌ Réponse vide (index.php)" && echo "$RESPONSE" && exit 1; fi
 
-          if [ -z "$NEW_CODE" ]; then
-            echo "❌ Réponse vide de l'API"
-            echo "$RESPONSE"
-            exit 1
-          fi
+          # Nettoyer les balises markdown si présentes
+          NEW_CODE=$(echo "$NEW_CODE" | sed 's/^```php$//' | sed 's/^```$//')
 
           echo "$NEW_CODE" > index_new.php
+          php -l index_new.php || (echo "❌ Syntaxe PHP invalide" && exit 1)
 
-      - name: Vérifier la syntaxe PHP
-        run: |
-          php -l index_new.php
-          if [ $? -ne 0 ]; then
-            echo "❌ Erreur de syntaxe PHP — abandon"
-            exit 1
-          fi
-          echo "✅ Syntaxe PHP valide"
-
-      - name: Vérifier taille (anti-troncature)
-        run: |
           SIZE_OLD=$(wc -c < index.php)
           SIZE_NEW=$(wc -c < index_new.php)
           MIN=$((SIZE_OLD * 70 / 100))
-          echo "Ancien: ${SIZE_OLD} octets | Nouveau: ${SIZE_NEW} octets | Min requis: ${MIN}"
-          if [ "$SIZE_NEW" -lt "$MIN" ]; then
-            echo "❌ Fichier trop court (troncature détectée) — abandon"
-            exit 1
-          fi
-          echo "✅ Taille OK"
+          echo "index.php: ${SIZE_OLD} → ${SIZE_NEW} octets (min: ${MIN})"
+          [ "$SIZE_NEW" -lt "$MIN" ] && echo "❌ Troncature détectée" && exit 1
 
-      - name: Appliquer les changements
-        run: |
           cp index_new.php index.php
           rm -f index_new.php
+          echo "✅ index.php amélioré"
 
+      # ── Améliorer style.css ──────────────────────────────────────────────────
+      - name: Améliorer style.css
+        id: improve_css
+        run: |
+          SOURCE=$(cat style.css)
+          GOAL="Tu es un expert CSS/UI. Améliore ce fichier style.css d'une application de chat. Objectifs : améliore les animations, les transitions, le responsive mobile, les couleurs du dark mode, ou ajoute des effets visuels subtils. Garde toutes les classes existantes (ne supprime rien). Retourne le CSS complet amélioré sans aucun commentaire avant ou après, juste le CSS pur."
+
+          PAYLOAD=$(jq -n \
+            --arg goal "$GOAL" \
+            --arg source "$SOURCE" \
+            '{
+              model: "mistral-small-latest",
+              max_tokens: 8000,
+              temperature: 0.3,
+              messages: [
+                {role: "system", content: ($goal)},
+                {role: "user", content: ("Voici le fichier style.css à améliorer :\n\n" + $source + "\n\nRetourne le CSS complet amélioré.")}
+              ]
+            }')
+
+          RESPONSE=$(curl -s -X POST https://api.mistral.ai/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.MISTRAL_API_KEY }}" \
+            --max-time 300 \
+            -d "$PAYLOAD")
+
+          NEW_CODE=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          if [ -z "$NEW_CODE" ]; then echo "⚠️ Réponse vide (style.css) — skip" && exit 0; fi
+
+          # Nettoyer les balises markdown
+          NEW_CODE=$(echo "$NEW_CODE" | sed 's/^```css$//' | sed 's/^```$//')
+
+          SIZE_OLD=$(wc -c < style.css)
+          SIZE_NEW=$(echo "$NEW_CODE" | wc -c)
+          MIN=$((SIZE_OLD * 70 / 100))
+          echo "style.css: ${SIZE_OLD} → ${SIZE_NEW} octets (min: ${MIN})"
+          [ "$SIZE_NEW" -lt "$MIN" ] && echo "⚠️ CSS trop court — skip" && exit 0
+
+          echo "$NEW_CODE" > style.css
+          echo "✅ style.css amélioré"
+
+      # ── Améliorer app.js ─────────────────────────────────────────────────────
+      - name: Améliorer app.js
+        id: improve_js
+        run: |
+          SOURCE=$(cat app.js)
+          GOAL="Tu es un expert JavaScript. Améliore ce fichier app.js d'une application de chat. Objectifs : améliore les fonctions existantes, ajoute des raccourcis clavier utiles, améliore l'UX (notifications, animations), ou corrige des bugs potentiels. Garde toutes les fonctions existantes (ne supprime rien). Retourne le JS complet amélioré sans aucun commentaire avant ou après, juste le JavaScript pur."
+
+          PAYLOAD=$(jq -n \
+            --arg goal "$GOAL" \
+            --arg source "$SOURCE" \
+            '{
+              model: "mistral-small-latest",
+              max_tokens: 8000,
+              temperature: 0.3,
+              messages: [
+                {role: "system", content: ($goal)},
+                {role: "user", content: ("Voici le fichier app.js à améliorer :\n\n" + $source + "\n\nRetourne le JS complet amélioré.")}
+              ]
+            }')
+
+          RESPONSE=$(curl -s -X POST https://api.mistral.ai/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.MISTRAL_API_KEY }}" \
+            --max-time 300 \
+            -d "$PAYLOAD")
+
+          NEW_CODE=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          if [ -z "$NEW_CODE" ]; then echo "⚠️ Réponse vide (app.js) — skip" && exit 0; fi
+
+          # Nettoyer les balises markdown
+          NEW_CODE=$(echo "$NEW_CODE" | sed 's/^```javascript$//' | sed 's/^```js$//' | sed 's/^```$//')
+
+          SIZE_OLD=$(wc -c < app.js)
+          SIZE_NEW=$(echo "$NEW_CODE" | wc -c)
+          MIN=$((SIZE_OLD * 70 / 100))
+          echo "app.js: ${SIZE_OLD} → ${SIZE_NEW} octets (min: ${MIN})"
+          [ "$SIZE_NEW" -lt "$MIN" ] && echo "⚠️ JS trop court — skip" && exit 0
+
+          echo "$NEW_CODE" > app.js
+          echo "✅ app.js amélioré"
+
+      # ── Commit et push ───────────────────────────────────────────────────────
       - name: Commit et push
         run: |
           git config user.name  "AutoChat Bot"
           git config user.email "autochat@github-actions"
-          git add index.php
+          git add index.php style.css app.js
           git diff --staged --quiet && echo "Pas de changement" && exit 0
           DATE=$(date '+%Y-%m-%d %H:%M')
           git commit -m "🤖 AutoChat amélioration nocturne — $DATE"
