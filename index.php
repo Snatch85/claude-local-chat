@@ -4,7 +4,7 @@
  * Interface complète avec sidebar, conversations multiples, rendu Markdown/code
  */
 
-define('VERSION',      '1.0.4');
+define('VERSION',      '1.0.5');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   4096);
@@ -180,7 +180,7 @@ if (isset($_GET['api'])) {
     if ($act === 'rename') {
         $id    = (int)($_POST['id'] ?? 0);
         $title = substr(trim($_POST['title'] ?? ''), 0, 80);
-        db()->prepare("UPDATE conversations SET title=? WHERE id=?")->execute([$title, $id]);
+        db()->prepare("UPDATE conversations SET title=?, updated_at=datetime('now') WHERE id=?")->execute([$title, $id]);
         echo json_encode(['success' => true]);
         exit;
     }
@@ -377,8 +377,7 @@ $conversations = db()->query("SELECT * FROM conversations ORDER BY updated_at DE
   --mono:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
   --r:8px;
 }
-html,body{height:100%;overflow:hidden}
-body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex}
+html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex}
 
 /* ━━ SIDEBAR ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .sidebar{
@@ -481,7 +480,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
   white-space:nowrap;
 }
 .key-save-btn:hover{background:var(--accent2)}
-
 /* ── Welcome ── */
 .welcome{
   flex:1;display:flex;flex-direction:column;align-items:center;
@@ -510,9 +508,15 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 
 .msg-group{max-width:760px;margin:0 auto;padding:.25rem 1.5rem}
 
-.msg{display:flex;gap:1rem;padding:.5rem 0;animation:fadeIn .2s ease}
-@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-
+.msg{
+  display:flex;gap:1rem;padding:.5rem 0;
+  animation:fadeIn .3s ease-out forwards;
+  opacity:0;
+  transform:translateY(10px);
+}
+@keyframes fadeIn{
+  to{opacity:1;transform:translateY(0)}
+}
 .msg-avatar{
   width:32px;height:32px;border-radius:8px;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;font-size:.85rem;margin-top:2px;
@@ -553,18 +557,39 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
   border:1px solid #e7e5e4;padding:.1rem .35rem;border-radius:4px;color:#7c3aed;
 }
 
-.code-block{border-radius:10px;overflow:hidden;margin:.6rem 0;border:1px solid #313244}
+.code-block{
+  border-radius:12px;
+  overflow:hidden;
+  margin:.6rem 0;
+  border:1px solid rgba(0,0,0,.1);
+  box-shadow:0 4px 12px rgba(0,0,0,.08);
+  background:#fff;
+  transition:box-shadow .2s ease;
+}
+.code-block:hover{
+  box-shadow:0 6px 20px rgba(0,0,0,.12);
+}
 .code-header{
-  background:#181825;display:flex;align-items:center;
-  padding:.45rem .9rem;border-bottom:1px solid #313244;
+  background:#f8f9fa;
+  display:flex;align-items:center;
+  padding:.6rem 1rem;
+  border-bottom:1px solid rgba(0,0,0,.05);
 }
-.code-lang{font-family:var(--mono);font-size:.7rem;color:#6c7086;text-transform:uppercase;letter-spacing:.06em;flex:1}
+.code-lang{
+  font-family:var(--mono);
+  font-size:.7rem;
+  color:#6c7086;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  flex:1
+}
 .copy-btn{
-  background:none;border:1px solid #45475a;color:#6c7086;
+  background:none;border:1px solid #e7e5e4;color:#78716c;
   border-radius:5px;padding:.2rem .55rem;font-size:.68rem;cursor:pointer;
-  font-family:var(--font);transition:.15s;
+  font-family:var(--font);
+  transition:.15s;
 }
-.copy-btn:hover{border-color:#cdd6f4;color:#cdd6f4}
+.copy-btn:hover{border-color:var(--accent);color:var(--accent)}
 .code-block pre{background:var(--code-bg);padding:.9rem 1rem;overflow-x:auto;margin:0}
 .code-block pre code{
   font-family:var(--mono);font-size:.82rem;color:var(--code-text);
@@ -574,7 +599,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 /* Thinking */
 .thinking-dots{display:inline-flex;gap:4px;padding:.4rem 0}
 .thinking-dots span{
-  width:7px;height:7px;background:var(--accent);border-radius:50%;opacity:.4;
+  width:7px;height:7px;background:var(--accent);border-radius:50%;
+  opacity:.4;
   animation:dot .9s infinite;
 }
 .thinking-dots span:nth-child(2){animation-delay:.2s}
@@ -601,7 +627,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 }
 .input-inner textarea::placeholder{color:#a8a29e}
 .input-toolbar{
-  display:flex;align-items:center;padding:.4rem .7rem;gap:.5rem;
+  display:flex;align-items:center;padding:.4rem .7rem;
+  gap:.5rem;
 }
 .input-hint-txt{font-size:.7rem;color:#a8a29e;flex:1}
 .send-btn{
@@ -615,9 +642,18 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 
 /* ── Bouton copier message ── */
 .msg-copy-btn{
-  display:none;background:none;border:1px solid var(--border);border-radius:6px;
-  color:var(--muted);font-size:.7rem;padding:.2rem .55rem;cursor:pointer;
-  margin-top:.35rem;font-family:var(--font);transition:.1s;
+  display:none;
+  background:none;
+  border:1px solid var(--border);
+  border-radius:6px;
+  color:var(--muted);
+  font-size:.7rem;
+  padding:.2rem .55rem;
+  cursor:pointer;
+  margin-top:.35rem;
+  font-family:var(--font);
+  transition:.1s;
+  box-shadow:0 1px 3px rgba(0,0,0,.1);
 }
 .msg-copy-btn:hover{color:var(--accent);border-color:var(--accent)}
 .msg:hover .msg-copy-btn{display:inline-flex;align-items:center;gap:.3rem}
