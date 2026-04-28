@@ -5,6 +5,9 @@ on:
     - cron: '30 3 * * *'   # 3h30 UTC (= 5h30 heure française)
   workflow_dispatch:         # bouton manuel sur GitHub
 
+permissions:
+  contents: write
+
 jobs:
   improve:
     runs-on: ubuntu-latest
