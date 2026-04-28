@@ -4,7 +4,7 @@
  * Interface complète avec sidebar, conversations multiples, rendu Markdown/code
  */
 
-define('VERSION',      '1.0.5');
+define('VERSION',      '1.0.6');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   4096);
@@ -527,7 +527,7 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
 .msg-content{flex:1;min-width:0}
 .msg-name{font-size:.75rem;font-weight:600;color:var(--muted);margin-bottom:.3rem}
 .msg-text{font-size:.9rem;line-height:1.75;color:var(--text)}
-.msg-time{font-size:.65rem;color:var(--muted);margin-top:.3rem;text-align:right}
+.msg-time{font-size:.65rem;color:#78716c;margin-top:.3rem;text-align:right}
 
 /* Markdown */
 .msg-text h1{font-size:1.2rem;font-weight:700;margin:1rem 0 .4rem;color:var(--text)}
@@ -615,7 +615,7 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
 .input-inner{
   max-width:760px;margin:0 auto;
   background:var(--bg);border:1.5px solid var(--border);
-  border-radius:12px;transition:.15s;
+  border-radius:12px;transition:.1s;
   box-shadow:0 2px 8px rgba(0,0,0,.06);
 }
 .input-inner:focus-within{border-color:var(--accent);box-shadow:0 2px 12px rgba(124,58,237,.15)}
@@ -1059,7 +1059,7 @@ function appendMessage(role, content, scroll=true) {
       <div class="msg-content">
         <div class="msg-name">${name}</div>
         <div class="msg-text">${rendered}</div>
-        <div class="msg-time">${timeStr}</div>
+        <div class="msg-time" style="color:#78716c;font-size:.65rem;margin-top:.3rem;text-align:right">${timeStr}</div>
         <button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copier</button>
         ${role === 'assistant' ? '<button class="msg-copy-btn" onclick="regenerate()" style="margin-left:.5rem">🔄 Régénérer</button>' : ''}
       </div>`;
