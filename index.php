@@ -4,7 +4,7 @@
  * Interface complète avec sidebar, conversations multiples, rendu Markdown/code
  */
 
-define('VERSION',      '1.0.6');
+define('VERSION',      '1.0.7');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   4096);
@@ -680,6 +680,181 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
 .focus-mode .input-zone{padding:0 1.5rem 1.2rem}
 .focus-mode .msg-group{max-width:none}
 
+/* ━━ DARK MODE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.dark-mode{
+  --bg:#0f0f0f;
+  --sidebar:#1a1a1a;
+  --sidebar-hover:#262626;
+  --sidebar-active:#3a3a3a;
+  --surface:#1a1a1a;
+  --border:#3a3a3a;
+  --text:#e5e5e5;
+  --muted:#a3a3a3;
+  --accent:#a855f7;
+  --accent2:#9333ea;
+  --user-bg:#1a1a1a;
+  --ai-bg:#262626;
+  --code-bg:#1e1e2e;
+  --code-text:#cdd6f4;
+  --shadow:0 1px 3px rgba(0,0,0,.3);
+}
+.dark-mode .code-block{
+  background:#262626;
+  border-color:rgba(255,255,255,.1);
+}
+.dark-mode .code-header{
+  background:#2d2d2d;
+  border-bottom-color:rgba(255,255,255,.1);
+}
+.dark-mode .msg-avatar.user{
+  background:#262626;
+  color:#e5e5e5;
+}
+.dark-mode .msg-avatar.ai{
+  background:#a855f7;
+}
+.dark-mode .msg-text{
+  color:#e5e5e5;
+}
+.dark-mode .msg-name{
+  color:#a3a3a3;
+}
+.dark-mode .msg-time{
+  color:#737373;
+}
+.dark-mode .inline-code{
+  background:#2d2d2d;
+  border-color:#3a3a3a;
+  color:#a855f7;
+}
+.dark-mode .suggestion{
+  background:#262626;
+  border-color:#3a3a3a;
+  color:#e5e5e5;
+}
+.dark-mode .suggestion:hover{
+  background:#2d2d2d;
+  border-color:#a855f7;
+}
+.dark-mode .welcome{
+  color:#e5e5e5;
+}
+.dark-mode .welcome-logo{
+  background:#a855f7;
+}
+.dark-mode .topbar{
+  background:#1a1a1a;
+  border-bottom-color:#3a3a3a;
+}
+.dark-mode .model-select,
+.dark-mode .persona-select{
+  background:#262626;
+  border-color:#3a3a3a;
+  color:#e5e5e5;
+}
+.dark-mode .input-inner{
+  background:#262626;
+  border-color:#3a3a3a;
+}
+.dark-mode .input-inner textarea{
+  color:#e5e5e5;
+}
+.dark-mode .input-inner textarea::placeholder{
+  color:#737373;
+}
+.dark-mode .input-inner:focus-within{
+  box-shadow:0 2px 12px rgba(168,85,247,.25);
+}
+.dark-mode .send-btn{
+  background:#a855f7;
+}
+.dark-mode .send-btn:hover:not(:disabled){
+  background:#9333ea;
+}
+.dark-mode .char-count{
+  color:#737373;
+}
+.dark-mode .char-count.warn{
+  color:#fbbf24;
+}
+.dark-mode .char-count.over{
+  color:#f87171;
+}
+.dark-mode .conv-item:hover{
+  background:#262626;
+}
+.dark-mode .conv-item.active{
+  background:#3a3a3a;
+}
+.dark-mode .conv-title{
+  color:#d4d4d4;
+}
+.dark-mode .conv-del:hover{
+  color:#f87171;
+  background:rgba(248,113,113,.1);
+}
+.dark-mode .api-status:hover{
+  background:#262626;
+}
+.dark-mode .api-label{
+  color:#d4d4d4;
+}
+.dark-mode .api-edit{
+  color:#737373;
+}
+.dark-mode .key-box{
+  background:#262626;
+}
+.dark-mode .key-input{
+  background:#2d2d2d;
+  border-color:#3a3a3a;
+  color:#e5e5e5;
+}
+.dark-mode .key-input:focus{
+  border-color:#a855f7;
+}
+.dark-mode .key-save-btn{
+  background:#a855f7;
+}
+.dark-mode .key-save-btn:hover{
+  background:#9333ea;
+}
+.dark-mode blockquote{
+  background:#2d2d2d;
+  border-left-color:#a855f7;
+  color:#a3a3a3;
+}
+.dark-mode .thinking-dots span{
+  background:#a855f7;
+}
+.dark-mode .msg-copy-btn{
+  border-color:#3a3a3a;
+  color:#737373;
+}
+.dark-mode .msg-copy-btn:hover{
+  color:#a855f7;
+  border-color:#a855f7;
+}
+.dark-mode .conv-del{
+  color:#737373;
+}
+.dark-mode .conv-time{
+  color:#737373;
+}
+.dark-mode .sidebar-logo small{
+  color:#737373;
+}
+.dark-mode .sidebar-section{
+  color:#737373;
+}
+.dark-mode .hamburger{
+  border-color:#3a3a3a;
+  color:#e5e5e5;
+}
+.dark-mode .sidebar-overlay{
+  background:rgba(0,0,0,.7);
+}
+
 @media(max-width:700px){
   .sidebar{
     display:flex;position:fixed;left:-260px;top:0;bottom:0;
@@ -754,6 +929,7 @@ html,body{height:100%;overflow:hidden}body{font-family:var(--font);background:va
       <?php endforeach; ?>
     </select>
     <button class="hamburger" onclick="toggleFocusMode()" title="Mode focus">⛶</button>
+    <button class="hamburger" onclick="toggleDarkMode()" title="Mode sombre">🌙</button>
   </div>
 
   <!-- Zone chat ou welcome -->
@@ -812,6 +988,34 @@ let currentConvId = null;
 let sending = false;
 let isFocusMode = false;
 let lastScrollPosition = 0;
+let isDarkMode = false;
+
+// ── Mode sombre ──────────────────────────────────────────────────────────────
+function toggleDarkMode() {
+    isDarkMode = !isDarkMode;
+    document.body.classList.toggle('dark-mode');
+    localStorage.setItem('darkMode', isDarkMode);
+    updateThemeIcon();
+}
+
+// Mettre à jour l'icône du bouton en fonction du thème
+function updateThemeIcon() {
+    const btn = document.querySelector('.topbar button[onclick="toggleDarkMode()"]');
+    if (btn) {
+        btn.textContent = isDarkMode ? '☀️' : '🌙';
+        btn.title = isDarkMode ? 'Mode clair' : 'Mode sombre';
+    }
+}
+
+// Charger le mode sombre depuis localStorage
+function loadDarkModePreference() {
+    const saved = localStorage.getItem('darkMode');
+    if (saved === 'true') {
+        isDarkMode = true;
+        document.body.classList.add('dark-mode');
+    }
+    updateThemeIcon();
+}
 
 // ── Sidebar mobile ───────────────────────────────────────────────────────────
 function toggleSidebar() {
@@ -1059,7 +1263,7 @@ function appendMessage(role, content, scroll=true) {
       <div class="msg-content">
         <div class="msg-name">${name}</div>
         <div class="msg-text">${rendered}</div>
-        <div class="msg-time" style="color:#78716c;font-size:.65rem;margin-top:.3rem;text-align:right">${timeStr}</div>
+        <div class="msg-time" style="color:#78716c;margin-top:.3rem;text-align:right">${timeStr}</div>
         <button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copier</button>
         ${role === 'assistant' ? '<button class="msg-copy-btn" onclick="regenerate()" style="margin-left:.5rem">🔄 Régénérer</button>' : ''}
       </div>`;
@@ -1152,6 +1356,9 @@ async function updateConvPersona() { /* persona stocké à la création */ }
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function esc(s) {
     const d = document.createElement('div');
+    d.text
+function esc(s) {
+    const d = document.createElement('div');
     d.textContent = String(s||'');
     return d.innerHTML;
 }
@@ -1184,6 +1391,8 @@ function autoResize(el) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('msgInput').focus();
+    // Charger le mode sombre depuis localStorage
+    loadDarkModePreference();
     // Charger la dernière conversation si elle existe
     const firstConv = document.querySelector('.conv-item');
     if (firstConv) {
