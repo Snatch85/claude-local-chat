@@ -1,179 +1,112 @@
-
 <?php
-define('VERSION', '1.2.0');
-define('API_URL', 'https://api.mistral.ai/v1/chat/completions');
-define('DB_FILE', __DIR__ . '/chat.sqlite');
-define('MAX_TOKENS', 4096);
-define('MAX_CONVERSATIONS', 100);
-define('MAX_MESSAGE_LENGTH', 4000);
-define('DEFAULT_KEY', '');
+/**
+ * ClaudeLocal — Interface style "Claude Code" (Terminal UI)
+ * Design minimaliste sombre inspiré du terminal Claude Code
+ */
+
+define('VERSION',      '2.0.0');
+define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
+define('DB_FILE',      __DIR__ . '/chat.sqlite');
+define('MAX_TOKENS',   8192);
+define('DEFAULT_KEY',  'cZZD8FUXV7C3OYcrrlESoDC3KhS7eEsJ');
 
 $MODELS = [
-    'mistral-large-latest' => ['label' => 'Mistral Large', 'desc' => 'Modèle le plus intelligent', 'max_tokens' => 8192],
-    'mistral-small-latest' => ['label' => 'Mistral Small', 'desc' => 'Modèle rapide et efficace', 'max_tokens' => 4096],
-    'codestral-latest' => ['label' => 'Codestral', 'desc' => 'Expert en développement', 'max_tokens' => 8192],
-    'pixtral-large-latest' => ['label' => 'Pixtral Large 🖼️', 'desc' => 'Analyse d\'images', 'max_tokens' => 4096],
+    'mistral-large-latest'  => ['label' => 'mistral-large',  'desc' => 'Most capable model'],
+    'mistral-small-latest'  => ['label' => 'mistral-small',  'desc' => 'Fast & efficient'],
+    'codestral-latest'      => ['label' => 'codestral',      'desc' => 'Code specialist'],
 ];
 
 $PERSONAS = [
     'assistant' => [
-        'label' => 'Assistant général',
-        'icon' => '🤖',
-        'prompt' => 'Tu es un assistant IA intelligent, précis et bienveillant. Tu réponds en français par défaut. Tu structures tes réponses avec des titres, listes et code quand c\'est utile. Tu restes concis et pertinent.',
-        'system' => true
+        'label'  => 'Default',
+        'icon'   => '◇',
+        'prompt' => 'You are Claude Code, an expert AI coding assistant. You provide clear, concise, and accurate responses. You write clean, well-commented code. You think step-by-step before answering complex questions.',
     ],
     'dev' => [
-        'label' => 'Développeur PHP',
-        'icon' => '💻',
-        'prompt' => 'Tu es un expert PHP/JS/SQL senior. Tu fournis du code propre, commenté et fonctionnel avec des exemples complets. Tu expliques chaque décision technique et signales les failles de sécurité potentielles. Tu utilises les bonnes pratiques modernes.',
-        'system' => true
+        'label'  => 'Senior Dev',
+        'icon'   => '◆',
+        'prompt' => 'You are a senior software engineer expert in PHP, JavaScript, Python, and SQL. You write production-ready code with proper error handling. You explain your reasoning clearly and suggest best practices.',
     ],
-    'marin' => [
-        'label' => 'Expert marées',
-        'icon' => '🌊',
-        'prompt' => 'Tu es un expert des marées, de la navigation et de la pêche en Loire-Atlantique et Bretagne. Tu connais parfaitement les ports, coefficients, spots de pêche à pied, conditions météo marines et réglementations locales. Tu donnes des conseils pratiques et précis.',
-        'system' => true
-    ],
-    'science' => [
-        'label' => 'Chercheur scientifique',
-        'icon' => '🔬',
-        'prompt' => 'Tu es un chercheur biomédical expert. Tu analyses les études scientifiques récentes, expliques les mécanismes biologiques complexes de manière accessible. Tu cites tes sources et restes factuel et nuancé. Tu distingues bien faits scientifiques et hypothèses.',
-        'system' => true
-    ],
-    'writer' => [
-        'label' => 'Rédacteur',
-        'icon' => '✍️',
-        'prompt' => 'Tu es un rédacteur professionnel spécialisé dans la création de contenus clairs, engageants et bien structurés. Tu adaptes ton style au public cible et au format demandé (article, email, post réseaux sociaux, etc.).',
-        'system' => true
+    'architect' => [
+        'label'  => 'Architect',
+        'icon'   => '◈',
+        'prompt' => 'You are a software architect. You design scalable systems, choose appropriate technologies, and explain trade-offs. You provide diagrams in ASCII when helpful.',
     ],
 ];
 
 session_start();
-session_regenerate_id(true);
 
 function db(): PDO {
     static $pdo = null;
     if ($pdo) return $pdo;
-
-    if (!file_exists(DB_FILE)) {
-        touch(DB_FILE);
-        chmod(DB_FILE, 0640);
-    }
-
-    $pdo = new PDO('sqlite:' . DB_FILE, null, null, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES => false,
-    ]);
-
-    $pdo->exec("PRAGMA journal_mode = WAL");
-    $pdo->exec("PRAGMA synchronous = NORMAL");
-    $pdo->exec("PRAGMA foreign_keys = ON");
-    $pdo->exec("PRAGMA busy_timeout = 5000");
-
+    $pdo = new PDO('sqlite:' . DB_FILE);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS conversations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL DEFAULT 'Nouvelle conversation',
-            model TEXT NOT NULL DEFAULT 'mistral-large-latest',
-            persona TEXT NOT NULL DEFAULT 'assistant',
-            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-            CONSTRAINT model_check CHECK (model IN ('mistral-large-latest', 'mistral-small-latest', 'codestral-latest', 'pixtral-large-latest')),
-            CONSTRAINT persona_check CHECK (persona IN ('assistant', 'dev', 'marin', 'science', 'writer'))
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            title      TEXT NOT NULL DEFAULT 'New conversation',
+            model      TEXT NOT NULL DEFAULT 'mistral-large-latest',
+            persona    TEXT NOT NULL DEFAULT 'assistant',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
             conversation_id INTEGER NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-            tokens INTEGER DEFAULT 0,
+            role            TEXT NOT NULL,
+            content         TEXT NOT NULL,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
-        CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at);
-        CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
-        CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
     ");
-
     return $pdo;
 }
 
-function h(string $s): string {
-    return htmlspecialchars($s ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
+function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8'); }
 
 function timeAgo(string $dt): string {
     $diff = time() - strtotime($dt);
-    if ($diff < 60) return 'À l\'instant';
-    if ($diff < 3600) return floor($diff/60) . ' min';
-    if ($diff < 86400) return floor($diff/3600) . 'h';
-    if ($diff < 2592000) return floor($diff/86400) . 'j';
-    return date('d/m/Y', strtotime($dt));
-}
-
-function sanitizeInput(string $input): string {
-    $input = trim($input);
-    $input = preg_replace('/\s+/', ' ', $input);
-    return mb_substr($input, 0, MAX_MESSAGE_LENGTH, 'UTF-8');
-}
-
-function estimateTokens(string $text): int {
-    return (int)ceil(str_word_count($text) * 1.3);
+    if ($diff < 60)     return 'now';
+    if ($diff < 3600)   return floor($diff/60) . 'm';
+    if ($diff < 86400)  return floor($diff/3600) . 'h';
+    if ($diff < 604800) return floor($diff/86400) . 'd';
+    return date('M d', strtotime($dt));
 }
 
 function md(string $s): string {
-    if (empty($s)) return '';
-
-    $s = h($s);
-
+    $s = htmlspecialchars($s, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $s = preg_replace_callback('/```(\w*)\n?([\s\S]*?)```/m', function($m) {
-        $lang = h($m[1] ?: 'code');
-        $code = h($m[2]);
-        $escaped = str_replace(['&lt;?php', '?&gt;'], ['<?php', '?>'], $code);
-        return '<div class="code-block" tabindex="0" role="region" aria-label="Bloc de code ' . $lang . '">
-            <div class="code-header">
-                <span class="code-lang">' . $lang . '</span>
-                <button class="copy-btn" onclick="copyCode(this)" aria-label="Copier le code">📋 Copier</button>
-            </div>
-            <pre><code class="lang-' . $lang . '">' . $escaped . '</code></pre>
-        </div>';
+        $lang = h($m[1] ?: 'text');
+        $code = $m[2];
+        return '<div class="code-block"><div class="code-header"><span class="code-lang">' . $lang . '</span>'
+             . '<button class="copy-btn" onclick="copyCode(this)" title="Copy">⧉</button></div>'
+             . '<pre><code class="language-' . $lang . '">' . $code . '</code></pre></div>';
     }, $s);
-
-    $s = preg_replace('/`([^`\n]+)`/', '<code class="inline-code" tabindex="0">$1</code>', $s);
-
-    $s = preg_replace('/^### (.+)$/m', '<h3 tabindex="0">$1</h3>', $s);
-    $s = preg_replace('/^## (.+)$/m', '<h2 tabindex="0">$1</h2>', $s);
-    $s = preg_replace('/^# (.+)$/m', '<h1 tabindex="0">$1</h1>', $s);
-
+    $s = preg_replace('/`([^`\n]+)`/', '<code class="inline-code">$1</code>', $s);
+    $s = preg_replace('/^### (.+)$/m', '<h3>$1</h3>', $s);
+    $s = preg_replace('/^## (.+)$/m',  '<h2>$1</h2>', $s);
+    $s = preg_replace('/^# (.+)$/m',   '<h1>$1</h1>', $s);
     $s = preg_replace('/\*\*\*(.+?)\*\*\*/', '<strong><em>$1</em></strong>', $s);
-    $s = preg_replace('/\*\*(.+?)\*\*/', '<strong>$1</strong>', $s);
-    $s = preg_replace('/\*(.+?)\*/', '<em>$1</em>', $s);
-    $s = preg_replace('/_(.+?)_/', '<em>$1</em>', $s);
-
-    $s = preg_replace('/^&gt; (.+)$/m', '<blockquote tabindex="0">$1</blockquote>', $s);
-
+    $s = preg_replace('/\*\*(.+?)\*\*/',     '<strong>$1</strong>',          $s);
+    $s = preg_replace('/\*(.+?)\*/',         '<em>$1</em>',                  $s);
+    $s = preg_replace('/^&gt; (.+)$/m', '<blockquote>$1</blockquote>', $s);
     $s = preg_replace('/^[-*•] (.+)$/m', '<li>$1</li>', $s);
-    $s = preg_replace('/(<li>[\s\S]*?<\/li>\n?)+/', '<ul role="list">$0</ul>', $s);
-
+    $s = preg_replace('/(<li>[\s\S]*?<\/li>\n?)+/', '<ul>$0</ul>', $s);
     $s = preg_replace('/^\d+\. (.+)$/m', '<oli>$1</oli>', $s);
-    $s = preg_replace('/(<oli>[\s\S]*?<\/oli>\n?)+/', '<ol role="list">$0</ol>', $s);
+    $s = preg_replace('/(<oli>[\s\S]*?<\/oli>\n?)+/', '<ol>$0</ol>', $s);
     $s = str_replace(['<oli>', '</oli>'], ['<li>', '</li>'], $s);
-
-    $s = preg_replace('/^---$/m', '<hr role="separator">', $s);
-
+    $s = preg_replace('/^---$/m', '<hr>', $s);
     $s = preg_replace_callback('/(\|.+\|\n)+/', function($m) {
         $rows = array_filter(explode("\n", trim($m[0])));
-        $html = '<div class="table-container" role="region" aria-label="Tableau"><table>';
+        $html = '<table>';
         foreach ($rows as $i => $row) {
             if (preg_match('/^\|[-| :]+\|$/', $row)) continue;
             $cells = array_slice(explode('|', $row), 1, -1);
             $tag = $i === 0 ? 'th' : 'td';
             $html .= '<tr>' . implode('', array_map(fn($c) => "<{$tag}>" . trim($c) . "</{$tag}>", $cells)) . '</tr>';
         }
-        return $html . '</table></div>';
+        return $html . '</table>';
     }, $s);
-
     $blocks = preg_split('/\n{2,}/', $s);
     $s = implode("\n", array_map(function($b) {
         $b = trim($b);
@@ -181,520 +114,1103 @@ function md(string $s): string {
         if (preg_match('/^<(h[1-3]|ul|ol|blockquote|pre|div|table|hr)/', $b)) return $b;
         return '<p>' . str_replace("\n", '<br>', $b) . '</p>';
     }, $blocks));
-
     return $s;
 }
 
-function cleanupOldConversations(): void {
-    $pdo = db();
-    $count = $pdo->query("SELECT COUNT(*) FROM conversations")->fetchColumn();
-    if ($count > MAX_CONVERSATIONS) {
-        $pdo->exec("DELETE FROM conversations WHERE id NOT IN (
-            SELECT id FROM conversations ORDER BY updated_at DESC LIMIT " . MAX_CONVERSATIONS . "
-        )");
-    }
-}
-
-if (empty($_SESSION['api_key'])) {
-    $_SESSION['api_key'] = DEFAULT_KEY;
-}
-$api_key = $_SESSION['api_key'] ?? DEFAULT_KEY;
+if (empty($_SESSION['api_key'])) { $_SESSION['api_key'] = DEFAULT_KEY; }
+$api_key = $_SESSION['api_key'];
 
 if (isset($_POST['set_key'])) {
-    $new_key = trim($_POST['api_key'] ?? '');
-    if (!empty($new_key)) {
-        $_SESSION['api_key'] = $new_key;
-    } else {
-        unset($_SESSION['api_key']);
-    }
-    header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?'));
+    $_SESSION['api_key'] = trim($_POST['api_key']);
+    header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
 
 if (isset($_GET['api'])) {
     header('Content-Type: application/json; charset=utf-8');
-    header('X-Content-Type-Options: nosniff');
-    header('X-Frame-Options: DENY');
+    $act = $_GET['api'];
 
-    $act = $_GET['api'] ?? '';
-    $input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-
-    try {
-        switch ($act) {
-            case 'new_conv':
-                $model = $input['model'] ?? 'mistral-large-latest';
-                $persona = $input['persona'] ?? 'assistant';
-
-                if (!isset($MODELS[$model])) $model = 'mistral-large-latest';
-                if (!isset($PERSONAS[$persona])) $persona = 'assistant';
-
-                $stmt = db()->prepare("INSERT INTO conversations (model, persona) VALUES (?, ?)");
-                $stmt->execute([$model, $persona]);
-                $id = db()->lastInsertId();
-
-                echo json_encode(['success' => true, 'id' => $id]);
-                break;
-
-            case 'del_conv':
-                $id = (int)($input['id'] ?? 0);
-                if ($id <= 0) throw new Exception("ID invalide");
-
-                $stmt = db()->prepare("DELETE FROM conversations WHERE id = ?");
-                $stmt->execute([$id]);
-
-                echo json_encode(['success' => true]);
-                break;
-
-            case 'rename':
-                $id = (int)($input['id'] ?? 0);
-                $title = sanitizeInput($input['title'] ?? '');
-
-                if ($id <= 0) throw new Exception("ID invalide");
-                if (empty($title)) $title = 'Nouvelle conversation';
-
-                $stmt = db()->prepare("UPDATE conversations SET title = ?, updated_at = datetime('now', 'localtime') WHERE id = ?");
-                $stmt->execute([$title, $id]);
-
-                echo json_encode(['success' => true]);
-                break;
-
-            case 'load':
-                $id = (int)($_GET['id'] ?? 0);
-                if ($id <= 0) throw new Exception("ID invalide");
-
-                $conv = db()->prepare("SELECT * FROM conversations WHERE id = ?");
-                $conv->execute([$id]);
-                $conv = $conv->fetch();
-
-                if (!$conv) throw new Exception("Conversation introuvable");
-
-                $msgs = db()->prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at");
-                $msgs->execute([$id]);
-
-                echo json_encode([
-                    'success' => true,
-                    'conv' => $conv,
-                    'messages' => $msgs->fetchAll()
-                ]);
-                break;
-
-            case 'send':
-                $conv_id = (int)($input['conv_id'] ?? 0);
-                $content = sanitizeInput($input['content'] ?? '');
-                $image_b64 = $input['image_b64'] ?? '';
-                $image_mime = $input['image_mime'] ?? 'image/png';
-
-                if ($conv_id <= 0 || empty($content) || empty($api_key)) {
-                    throw new Exception("Paramètres manquants");
-                }
-
-                $conv = db()->prepare("SELECT * FROM conversations WHERE id = ?");
-                $conv->execute([$conv_id]);
-                $conv = $conv->fetch();
-
-                if (!$conv) throw new Exception("Conversation introuvable");
-
-                $stmt = db()->prepare("INSERT INTO messages (conversation_id, role, content, tokens) VALUES (?, 'user', ?, ?)");
-                $stmt->execute([$conv_id, $content, estimateTokens($content)]);
-
-                $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id = ?");
-                $count->execute([$conv_id]);
-                if ($count->fetchColumn() <= 1) {
-                    $title = mb_substr($content, 0, 50);
-                    $stmt = db()->prepare("UPDATE conversations SET title = ?, updated_at = datetime('now', 'localtime') WHERE id = ?");
-                    $stmt->execute([$title, $conv_id]);
-                } else {
-                    $stmt = db()->prepare("UPDATE conversations SET updated_at = datetime('now', 'localtime') WHERE id = ?");
-                    $stmt->execute([$conv_id]);
-                }
-
-                $persona = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
-                $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
-
-                $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at");
-                $history->execute([$conv_id]);
-
-                foreach ($history->fetchAll() as $m) {
-                    $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
-                }
-
-                if (!empty($image_b64)) {
-                    $conv['model'] = 'pixtral-large-latest';
-                    array_pop($api_messages);
-                    $api_messages[] = [
-                        'role' => 'user',
-                        'content' => [
-                            ['type' => 'text', 'text' => $content],
-                            ['type' => 'image_url', 'image_url' => ['url' => 'data:' . $image_mime . ';base64,' . $image_b64]]
-                        ]
-                    ];
-                }
-
-                $payload = [
-                    'model' => $conv['model'],
-                    'messages' => $api_messages,
-                    'max_tokens' => $MODELS[$conv['model']]['max_tokens'] ?? MAX_TOKENS,
-                    'temperature' => 0.7,
-                    'stream' => false
-                ];
-
-                $ch = curl_init(API_URL);
-                curl_setopt_array($ch, [
-                    CURLOPT_POST => true,
-                    CURLOPT_POSTFIELDS => json_encode($payload),
-                    CURLOPT_HTTPHEADER => [
-                        'Content-Type: application/json',
-                        'Authorization: Bearer ' . $api_key,
-                        'Accept: application/json'
-                    ],
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 300,
-                    CURLOPT_SSL_VERIFYPEER => true,
-                    CURLOPT_SSL_VERIFYHOST => 2
-                ]);
-
-                $raw = curl_exec($ch);
-                $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                $cerr = curl_error($ch);
-                curl_close($ch);
-
-                if ($cerr) throw new Exception('Erreur réseau: ' . $cerr);
-                if ($http >= 400) {
-                    $error = json_decode($raw, true);
-                    throw new Exception('API Error ' . $http . ': ' . ($error['message'] ?? $raw));
-                }
-
-                $data = json_decode($raw, true);
-                if (json_last_error() !== JSON_ERROR_NONE) {
-                    throw new Exception('Erreur de décodage JSON');
-                }
-
-                $reply = trim($data['choices'][0]['message']['content'] ?? '');
-                if (empty($reply)) throw new Exception('Réponse vide de l\'API');
-
-                $stmt = db()->prepare("INSERT INTO messages (conversation_id, role, content, tokens) VALUES (?, 'assistant', ?, ?)");
-                $stmt->execute([$conv_id, $reply, estimateTokens($reply)]);
-
-                cleanupOldConversations();
-
-                echo json_encode(['success' => true, 'reply' => $reply]);
-                break;
-
-            case 'regenerate':
-                $conv_id = (int)($input['conv_id'] ?? 0);
-                if ($conv_id <= 0) throw new Exception("ID invalide");
-
-                $stmt = db()->prepare("DELETE FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1");
-                $stmt->execute([$conv_id]);
-
-                $last_user = db()->prepare("SELECT content FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1");
-                $last_user->execute([$conv_id]);
-                $last_user = $last_user->fetchColumn();
-
-                if (!$last_user) throw new Exception("Aucun message utilisateur trouvé");
-
-                $conv = db()->prepare("SELECT * FROM conversations WHERE id = ?");
-                $conv->execute([$conv_id]);
-                $conv = $conv->fetch();
-
-                if (!$conv) throw new Exception("Conversation introuvable");
-
-                $persona = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
-                $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
-
-                $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at");
-                $history->execute([$conv_id]);
-
-                foreach ($history->fetchAll() as $m) {
-                    $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
-                }
-
-                $payload = [
-                    'model' => $conv['model'],
-                    'messages' => $api_messages,
-                    'max_tokens' => $MODELS[$conv['model']]['max_tokens'] ?? MAX_TOKENS,
-                    'temperature' => 0.7
-                ];
-
-                $ch = curl_init(API_URL);
-                curl_setopt_array($ch, [
-                    CURLOPT_POST => true,
-                    CURLOPT_POSTFIELDS => json_encode($payload),
-                    CURLOPT_HTTPHEADER => [
-                        'Content-Type: application/json',
-                        'Authorization: Bearer ' . $api_key
-                    ],
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 300
-                ]);
-
-                $raw = curl_exec($ch);
-                $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                $cerr = curl_error($ch);
-                curl_close($ch);
-
-                if ($cerr) throw new Exception('Erreur réseau: ' . $cerr);
-                if ($http >= 400) {
-                    $error = json_decode($raw, true);
-                    throw new Exception('API Error ' . $http . ': ' . ($error['message'] ?? $raw));
-                }
-
-                $data = json_decode($raw, true);
-                $reply = trim($data['choices'][0]['message']['content'] ?? '');
-                if (empty($reply)) throw new Exception('Réponse vide');
-
-                $stmt = db()->prepare("INSERT INTO messages (conversation_id, role, content, tokens) VALUES (?, 'assistant', ?, ?)");
-                $stmt->execute([$conv_id, $reply, estimateTokens($reply)]);
-
-                echo json_encode(['success' => true, 'reply' => $reply]);
-                break;
-
-            case 'list_convs':
-                $conversations = db()->query("SELECT * FROM conversations ORDER BY updated_at DESC LIMIT " . MAX_CONVERSATIONS)->fetchAll();
-                echo json_encode(['success' => true, 'conversations' => $conversations]);
-                break;
-
-            default:
-                throw new Exception("Action inconnue");
-        }
-    } catch (Exception $e) {
-        http_response_code(400);
-        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    if ($act === 'new_conv') {
+        $model   = $_POST['model']   ?? 'mistral-large-latest';
+        $persona = $_POST['persona'] ?? 'assistant';
+        db()->prepare("INSERT INTO conversations (model, persona) VALUES (?,?)")->execute([$model, $persona]);
+        echo json_encode(['success' => true, 'id' => (int)db()->lastInsertId()]);
+        exit;
     }
+    if ($act === 'del_conv') {
+        $id = (int)($_POST['id'] ?? 0);
+        db()->prepare("DELETE FROM conversations WHERE id=?")->execute([$id]);
+        db()->prepare("DELETE FROM messages WHERE conversation_id=?")->execute([$id]);
+        echo json_encode(['success' => true]);
+        exit;
+    }
+    if ($act === 'rename') {
+        $id    = (int)($_POST['id'] ?? 0);
+        $title = substr(trim($_POST['title'] ?? ''), 0, 80);
+        db()->prepare("UPDATE conversations SET title=? WHERE id=?")->execute([$title, $id]);
+        echo json_encode(['success' => true]);
+        exit;
+    }
+    if ($act === 'generate_title') {
+        $id = (int)($_POST['id'] ?? 0);
+        $first_message = trim($_POST['first_message'] ?? '');
+        if (!$id || !$first_message || !$api_key) {
+            echo json_encode(['success' => false, 'error' => 'Missing parameters']);
+            exit;
+        }
+        
+        $system_prompt = "Tu génères uniquement un titre court (4-6 mots maximum) qui résume le sujet de la conversation. Réponds uniquement avec le titre, sans guillemets, sans ponctuation finale.";
+        $messages = [
+            ['role' => 'system', 'content' => $system_prompt],
+            ['role' => 'user', 'content' => $first_message]
+        ];
+        
+        $payload = json_encode(['model' => 'mistral-small-latest', 'messages' => $messages, 'max_tokens' => 50]);
+        $ch = curl_init(API_URL);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30
+        ]);
+        $raw = curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        
+        if ($cerr || $http >= 400) {
+            echo json_encode(['success' => false, 'error' => 'Failed to generate title']);
+            exit;
+        }
+        
+        $data = json_decode($raw, true);
+        $generated_title = trim($data['choices'][0]['message']['content'] ?? '');
+        
+        if (!$generated_title) {
+            echo json_encode(['success' => false, 'error' => 'Empty title']);
+            exit;
+        }
+        
+        $generated_title = mb_substr($generated_title, 0, 80);
+        db()->prepare("UPDATE conversations SET title=? WHERE id=?")->execute([$generated_title, $id]);
+        echo json_encode(['success' => true, 'title' => $generated_title]);
+        exit;
+    }
+    if ($act === 'load') {
+        $id   = (int)($_GET['id'] ?? 0);
+        $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
+        $conv->execute([$id]);
+        $conv = $conv->fetch(PDO::FETCH_ASSOC);
+        if (!$conv) { echo json_encode(['success' => false]); exit; }
+        $msgs = db()->prepare("SELECT * FROM messages WHERE conversation_id=? ORDER BY id");
+        $msgs->execute([$id]);
+        echo json_encode(['success' => true, 'conv' => $conv, 'messages' => $msgs->fetchAll(PDO::FETCH_ASSOC)]);
+        exit;
+    }
+    if ($act === 'send') {
+        $conv_id = (int)($_POST['conv_id'] ?? 0);
+        $content = trim($_POST['content'] ?? '');
+        if (!$conv_id || !$content || !$api_key) {
+            echo json_encode(['success' => false, 'error' => 'Missing parameters or API key not configured']);
+            exit;
+        }
+        $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
+        $conv->execute([$conv_id]);
+        $conv = $conv->fetch(PDO::FETCH_ASSOC);
+        if (!$conv) { echo json_encode(['success' => false, 'error' => 'Conversation not found']); exit; }
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $content]);
+        $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id=?");
+        $count->execute([$conv_id]);
+        if ($count->fetchColumn() <= 1) {
+            $title = mb_substr($content, 0, 50);
+            db()->prepare("UPDATE conversations SET title=?, updated_at=datetime('now') WHERE id=?")->execute([$title, $conv_id]);
+        } else {
+            db()->prepare("UPDATE conversations SET updated_at=datetime('now') WHERE id=?")->execute([$conv_id]);
+        }
+        global $PERSONAS;
+        $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
+        $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
+        
+        // Récupérer les 10 derniers messages pour la mémoire contextuelle
+        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
+        $history->execute([$conv_id]);
+        $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Inverser pour avoir l'ordre chronologique et assurer l'alternance user/assistant
+        $msgs = array_reverse($msgs);
+        
+        // Filtrer pour garder une alternance correcte user/assistant en partant du plus ancien
+        $filtered_msgs = [];
+        $expected_role = 'user';
+        foreach ($msgs as $m) {
+            if ($m['role'] === $expected_role) {
+                $filtered_msgs[] = $m;
+                $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+            }
+        }
+        
+        // Si le premier message n'est pas 'user', on vérifie si on commence par 'assistant'
+        if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
+            $filtered_msgs = [];
+            $expected_role = 'assistant';
+            foreach ($msgs as $m) {
+                if ($m['role'] === $expected_role) {
+                    $filtered_msgs[] = $m;
+                    $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+                }
+            }
+            // Réinverser pour commencer par user si possible
+            if (!empty($filtered_msgs) && $filtered_msgs[0]['role'] === 'assistant') {
+                array_shift($filtered_msgs);
+            }
+        }
+        
+        foreach ($filtered_msgs as $m) {
+            $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
+        }
+        $payload = json_encode(['model' => $conv['model'], 'messages' => $api_messages, 'max_tokens' => MAX_TOKENS, 'temperature' => 0.7]);
+        $ch = curl_init(API_URL);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $payload, CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 300]);
+        $raw  = curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        if ($cerr) { echo json_encode(['success' => false, 'error' => 'Network: ' . $cerr]); exit; }
+        if ($http >= 400) {
+            $d = json_decode($raw, true);
+            echo json_encode(['success' => false, 'error' => 'API ' . $http . ': ' . ($d['message'] ?? substr($raw,0,200))]);
+            exit;
+        }
+        $data  = json_decode($raw, true);
+        $reply = trim($data['choices'][0]['message']['content'] ?? '');
+        if (!$reply) { echo json_encode(['success' => false, 'error' => 'Empty response']); exit; }
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'assistant', $reply]);
+        echo json_encode(['success' => true, 'reply' => $reply]);
+        exit;
+    }
+    if ($act === 'send_multimodal') {
+        $conv_id = (int)($_POST['conv_id'] ?? 0);
+        $text = trim($_POST['text'] ?? '');
+        $image_base64 = $_POST['image_base64'] ?? '';
+        $image_type = $_POST['image_type'] ?? 'image/jpeg';
+        if (!$conv_id || !$image_base64 || !$api_key) {
+            echo json_encode(['success' => false, 'error' => 'Missing parameters or API key not configured']);
+            exit;
+        }
+        $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
+        $conv->execute([$conv_id]);
+        $conv = $conv->fetch(PDO::FETCH_ASSOC);
+        if (!$conv) { echo json_encode(['success' => false, 'error' => 'Conversation not found']); exit; }
+        
+        // Build multimodal content for user message
+        $user_content = [];
+        if ($text) {
+            $user_content[] = ['type' => 'text', 'text' => $text];
+        }
+        // Extract base64 data (remove data:image/xxx;base64, prefix if present)
+        $base64_data = $image_base64;
+        if (preg_match('/^data:image\/(\w+);base64,(.+)$/', $image_base64, $matches)) {
+            $base64_data = $matches[2];
+            $image_type = 'image/' . $matches[1];
+        }
+        $user_content[] = ['type' => 'image_url', 'image_url' => ['url' => 'data:' . $image_type . ';base64,' . $base64_data]];
+        
+        // Store user message with a marker for the image
+        $user_msg_stored = $text . ($text ? "\n\n" : '') . '[Image attached]';
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $user_msg_stored]);
+        
+        $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id=?");
+        $count->execute([$conv_id]);
+        if ($count->fetchColumn() <= 1) {
+            $title = $text ? mb_substr($text, 0, 50) : 'Image conversation';
+            db()->prepare("UPDATE conversations SET title=?, updated_at=datetime('now') WHERE id=?")->execute([$title, $conv_id]);
+        } else {
+            db()->prepare("UPDATE conversations SET updated_at=datetime('now') WHERE id=?")->execute([$conv_id]);
+        }
+        
+        global $PERSONAS;
+        $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
+        $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
+        
+        // Récupérer les 10 derniers messages pour la mémoire contextuelle
+        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
+        $history->execute([$conv_id]);
+        $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Inverser pour avoir l'ordre chronologique et assurer l'alternance user/assistant
+        $msgs = array_reverse($msgs);
+        
+        // Filtrer pour garder une alternance correcte user/assistant en partant du plus ancien
+        $filtered_msgs = [];
+        $expected_role = 'user';
+        foreach ($msgs as $m) {
+            if ($m['role'] === $expected_role) {
+                $filtered_msgs[] = $m;
+                $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+            }
+        }
+        
+        // Si le premier message n'est pas 'user', on vérifie si on commence par 'assistant'
+        if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
+            $filtered_msgs = [];
+            $expected_role = 'assistant';
+            foreach ($msgs as $m) {
+                if ($m['role'] === $expected_role) {
+                    $filtered_msgs[] = $m;
+                    $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+                }
+            }
+            // Réinverser pour commencer par user si possible
+            if (!empty($filtered_msgs) && $filtered_msgs[0]['role'] === 'assistant') {
+                array_shift($filtered_msgs);
+            }
+        }
+        
+        foreach ($filtered_msgs as $m) {
+            // For stored messages without images, use simple string content
+            if ($m['role'] === 'user' && strpos($m['content'], '[Image attached]') !== false) {
+                $api_messages[] = ['role' => $m['role'], 'content' => str_replace("\n\n[Image attached]", '', $m['content'])];
+            } else {
+                $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
+            }
+        }
+        // Replace the last user message with multimodal content
+        array_pop($api_messages);
+        $api_messages[] = ['role' => 'user', 'content' => $user_content];
+        
+        // Force pixtral-large-latest model for vision
+        $model_to_use = 'pixtral-large-latest';
+        
+        $payload = json_encode(['model' => $model_to_use, 'messages' => $api_messages, 'max_tokens' => MAX_TOKENS, 'temperature' => 0.7]);
+        $ch = curl_init(API_URL);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $payload, CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 300]);
+        $raw  = curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        if ($cerr) { echo json_encode(['success' => false, 'error' => 'Network: ' . $cerr]); exit; }
+        if ($http >= 400) {
+            $d = json_decode($raw, true);
+            echo json_encode(['success' => false, 'error' => 'API ' . $http . ': ' . ($d['message'] ?? substr($raw,0,200))]);
+            exit;
+        }
+        $data  = json_decode($raw, true);
+        $reply = trim($data['choices'][0]['message']['content'] ?? '');
+        if (!$reply) { echo json_encode(['success' => false, 'error' => 'Empty response']); exit; }
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'assistant', $reply]);
+        echo json_encode(['success' => true, 'reply' => $reply]);
+        exit;
+    }
+    
+    // Streaming endpoint for Mistral API
+    if ($act === 'stream_message') {
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache');
+        header('X-Accel-Buffering: no');
+        ob_implicit_flush(true);
+        
+        $conv_id = (int)($_POST['conv_id'] ?? 0);
+        $content = trim($_POST['content'] ?? '');
+        $file_content = $_POST['file_content'] ?? '';
+        $file_name = $_POST['file_name'] ?? '';
+        
+        if (!$conv_id || (!$content && !$file_content) || !$api_key) {
+            echo "data: " . json_encode(['error' => 'Missing parameters or API key not configured']) . "\n\n";
+            exit;
+        }
+        
+        $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
+        $conv->execute([$conv_id]);
+        $conv = $conv->fetch(PDO::FETCH_ASSOC);
+        if (!$conv) {
+            echo "data: " . json_encode(['error' => 'Conversation not found']) . "\n\n";
+            exit;
+        }
+        
+        // Build user message content
+        $user_msg_content = $content;
+        if ($file_content !== '') {
+            $user_msg_content = "📄 {$file_name}\n\n{$content}";
+        }
+        
+        // Save user message
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $user_msg_content]);
+        
+        $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id=?");
+        $count->execute([$conv_id]);
+        if ($count->fetchColumn() <= 1) {
+            $title = mb_substr($content, 0, 50);
+            db()->prepare("UPDATE conversations SET title=?, updated_at=datetime('now') WHERE id=?")->execute([$title, $conv_id]);
+        } else {
+            db()->prepare("UPDATE conversations SET updated_at=datetime('now') WHERE id=?")->execute([$conv_id]);
+        }
+        
+        global $PERSONAS;
+        $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
+        $system_prompt = $persona['prompt'];
+        
+        // Add file content to system message if present
+        if ($file_content !== '') {
+            $system_prompt .= "\n\nVoici le fichier {$file_name} :\n\n" . $file_content;
+        }
+        
+        $api_messages = [['role' => 'system', 'content' => $system_prompt]];
+        
+        // Get last 10 messages for context
+        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
+        $history->execute([$conv_id]);
+        $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
+        $msgs = array_reverse($msgs);
+        
+        // Filter for proper user/assistant alternation
+        $filtered_msgs = [];
+        $expected_role = 'user';
+        foreach ($msgs as $m) {
+            if ($m['role'] === $expected_role) {
+                $filtered_msgs[] = $m;
+                $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+            }
+        }
+        
+        if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
+            $filtered_msgs = [];
+            $expected_role = 'assistant';
+            foreach ($msgs as $m) {
+                if ($m['role'] === $expected_role) {
+                    $filtered_msgs[] = $m;
+                    $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+                }
+            }
+            if (!empty($filtered_msgs) && $filtered_msgs[0]['role'] === 'assistant') {
+                array_shift($filtered_msgs);
+            }
+        }
+        
+        foreach ($filtered_msgs as $m) {
+            $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
+        }
+        
+        // Call Mistral API with streaming
+        $payload = json_encode(['model' => $conv['model'], 'messages' => $api_messages, 'max_tokens' => MAX_TOKENS, 'temperature' => 0.7, 'stream' => true]);
+        
+        $fullResponse = '';
+        $ch = curl_init(API_URL);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key],
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_TIMEOUT => 300,
+            CURLOPT_WRITEFUNCTION => function($curl, $data) use (&$fullResponse) {
+                static $buffer = '';
+                $buffer .= $data;
+                
+                // Process complete lines
+                while (($pos = strpos($buffer, "\n")) !== false) {
+                    $line = substr($buffer, 0, $pos);
+                    $buffer = substr($buffer, $pos + 1);
+                    
+                    $line = trim($line);
+                    if (strpos($line, 'data: ') === 0) {
+                        $jsonStr = substr($line, 6);
+                        if ($jsonStr === '[DONE]') {
+                            return strlen($data);
+                        }
+                        $parsed = json_decode($jsonStr, true);
+                        if ($parsed && isset($parsed['choices'][0]['delta']['content'])) {
+                            $chunk = $parsed['choices'][0]['delta']['content'];
+                            $fullResponse .= $chunk;
+                            echo "data: " . json_encode(['content' => $chunk]) . "\n\n";
+                            flush();
+                        }
+                    }
+                }
+                return strlen($data);
+            }
+        ]);
+        
+        curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        
+        if ($cerr) {
+            echo "data: " . json_encode(['error' => 'Network: ' . $cerr]) . "\n\n";
+            exit;
+        }
+        
+        if ($http >= 400) {
+            echo "data: " . json_encode(['error' => 'API error: ' . $http]) . "\n\n";
+            exit;
+        }
+        
+        // Save the full response to database
+        if ($fullResponse !== '') {
+            db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'assistant', $fullResponse]);
+        }
+        
+        echo "data: " . json_encode(['done' => true]) . "\n\n";
+        exit;
+    }
+    
+    echo json_encode(['success' => false, 'error' => 'Unknown action']);
     exit;
 }
 
-cleanupOldConversations();
-$conversations = db()->query("SELECT * FROM conversations ORDER BY updated_at DESC LIMIT " . MAX_CONVERSATIONS)->fetchAll();
+$conversations = db()->query("SELECT * FROM conversations ORDER BY updated_at DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
-<meta name="description" content="ClaudeLocal - Assistant IA local propulsé par Mistral AI">
-<title>ClaudeLocal - Assistant IA local</title>
-<link rel="stylesheet" href="style.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0d0d0d;--sidebar:#0a0a0a;--sidebar-hover:#1a1a1a;--sidebar-active:#262626;--surface:#141414;--border:#262626;--text:#f5f5f5;--muted:#737373;--accent:#d4a574;--accent-hover:#c99663;--user-bg:#1a1a1a;--ai-bg:#0d0d0d;--code-bg:#0a0a0a;--code-text:#e5e5e5;--code-border:#262626;--font:'SF Mono','Monaco','Inconsolata','Fira Code',monospace;--r:6px}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex}
+.sidebar{width:240px;background:var(--sidebar);color:#a3a3a3;display:flex;flex-direction:column;height:100vh;flex-shrink:0;border-right:1px solid var(--border)}
+.sidebar-top{padding:.75rem;border-bottom:1px solid var(--border)}
+.new-chat-btn{width:100%;background:transparent;border:1px solid var(--border);color:#a3a3a3;border-radius:var(--r);padding:.5rem .75rem;font-family:var(--font);font-size:.75rem;cursor:pointer;display:flex;align-items:center;gap:.5rem;transition:.15s}
+.new-chat-btn:hover{background:var(--sidebar-hover);border-color:#404040;color:#fff}
+.sidebar-logo{display:flex;align-items:center;gap:.5rem;padding:0 0 .75rem}
+.sidebar-logo-icon{width:24px;height:24px;background:var(--accent);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#000}
+.sidebar-logo span{font-size:.8rem;font-weight:600;color:#fff;letter-spacing:-.02em}
+.sidebar-logo small{font-size:.6rem;color:var(--muted);display:block;line-height:1;text-transform:uppercase;letter-spacing:.05em}
+.sidebar-section{padding:.5rem .75rem .25rem;font-size:.6rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+.conv-list{flex:1;overflow-y:auto;padding:.25rem .5rem}
+.conv-list::-webkit-scrollbar{width:4px}
+.conv-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.conv-item{display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;border-radius:var(--r);cursor:pointer;transition:.1s}
+.conv-item:hover{background:var(--sidebar-hover)}
+.conv-item.active{background:var(--sidebar-active)}
+.conv-icon{font-size:.7rem;flex-shrink:0;opacity:.6}
+.conv-title{font-size:.7rem;color:#a3a3a3;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:1.4;font-family:var(--font)}
+.conv-time{font-size:.55rem;color:var(--muted);flex-shrink:0}
+.conv-del{display:none;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.65rem;padding:.1rem .25rem;border-radius:3px;flex-shrink:0}
+.conv-item:hover .conv-del{display:block}
+.conv-del:hover{color:#ef4444;background:rgba(239,68,68,.1)}
+.sidebar-bottom{padding:.5rem .75rem;border-top:1px solid var(--border)}
+.api-status{display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;background:var(--sidebar-hover);border-radius:var(--r);font-size:.65rem;cursor:pointer;transition:.1s}
+.api-status:hover{background:#262626}
+.api-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.api-dot.ok{background:#22c55e;box-shadow:0 0 4px rgba(34,197,94,.5)}
+.api-dot.no{background:#ef4444}
+.api-label{color:#a3a3a3;flex:1}
+.api-edit{color:var(--muted);font-size:.55rem}
+.main{flex:1;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:.5rem 1rem;display:flex;align-items:center;gap:.75rem;flex-shrink:0}
+.topbar-title{font-size:.75rem;font-weight:500;color:var(--text);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--font)}
+.model-select,.persona-select{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:.25rem .5rem;font-size:.65rem;color:var(--muted);font-family:var(--font);cursor:pointer}
+.model-select:hover,.persona-select:hover{border-color:#404040;color:#a3a3a3}
+.model-select:focus,.persona-select:focus{outline:none;border-color:var(--accent)}
+.key-popup{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:999}
+.key-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;width:400px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.key-box h2{font-size:.9rem;margin-bottom:.3rem;font-family:var(--font);font-weight:500;color:#fff}
+.key-box p{font-size:.7rem;color:var(--muted);margin-bottom:1rem;line-height:1.5;font-family:var(--font)}
+.key-input-row{display:flex;gap:.5rem}
+.key-input{flex:1;border:1px solid var(--border);border-radius:4px;padding:.5rem .6rem;font-family:var(--font);font-size:.75rem;color:var(--text);background:var(--bg)}
+.key-input:focus{outline:none;border-color:var(--accent)}
+.key-save-btn{background:var(--accent);border:none;color:#000;padding:.5rem 1rem;border-radius:4px;font-weight:500;font-size:.7rem;cursor:pointer;font-family:var(--font);white-space:nowrap}
+.key-save-btn:hover{background:var(--accent-hover)}
+.welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem;padding:2rem;text-align:center}
+.welcome-logo{width:48px;height:48px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;box-shadow:0 4px 16px rgba(212,165,116,.2)}
+.welcome h1{font-size:1.1rem;font-weight:500;color:var(--text);font-family:var(--font)}
+.welcome p{font-size:.75rem;color:var(--muted);max-width:380px;line-height:1.6;font-family:var(--font)}
+.suggestions{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;max-width:560px}
+.suggestion{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.5rem .75rem;font-size:.7rem;color:var(--text);cursor:pointer;transition:.15s;text-align:left;display:flex;align-items:center;gap:.5rem;font-family:var(--font)}
+.suggestion:hover{border-color:var(--accent);background:var(--sidebar-hover);transform:translateY(-1px)}
+.chat-area{flex:1;overflow-y:auto;padding:1rem 0;scroll-behavior:smooth}
+.chat-area::-webkit-scrollbar{width:4px}
+.chat-area::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.msg-group{max-width:800px;margin:0 auto;padding:.25rem 1rem}
+.msg{display:flex;gap:.75rem;padding:.5rem 0;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.msg-avatar{width:28px;height:28px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.7rem;margin-top:2px;font-family:var(--font);font-weight:600}
+.msg-avatar.user{background:var(--user-bg);color:var(--muted);border:1px solid var(--border)}
+.msg-avatar.ai{background:var(--accent);color:#000}
+.msg-content{flex:1;min-width:0}
+.msg-name{font-size:.65rem;font-weight:500;color:var(--muted);margin-bottom:.25rem;font-family:var(--font)}
+.msg-text{font-size:.75rem;line-height:1.6;color:var(--text);font-family:var(--font)}
+.msg-text h1{font-size:.95rem;font-weight:600;margin:.75rem 0 .3rem;color:#fff}
+.msg-text h2{font-size:.85rem;font-weight:600;margin:.6rem 0 .25rem;color:#fff;border-bottom:1px solid var(--border);padding-bottom:.2rem}
+.msg-text h3{font-size:.8rem;font-weight:600;margin:.5rem 0 .2rem;color:#e5e5e5}
+.msg-text p{margin-bottom:.5rem}.msg-text p:last-child{margin-bottom:0}
+.msg-text ul,.msg-text ol{padding-left:1.25rem;margin:.3rem 0 .5rem}
+.msg-text li{margin-bottom:.15rem}
+.msg-text strong{font-weight:600;color:#fff}
+.msg-text em{font-style:italic;color:var(--muted)}
+.msg-text hr{border:none;border-top:1px solid var(--border);margin:.6rem 0}
+.msg-text blockquote{border-left:2px solid var(--accent);padding:.25rem .6rem;background:var(--sidebar-hover);border-radius:0 4px 4px 0;margin:.4rem 0;color:var(--muted);font-style:italic}
+.msg-text table{width:100%;border-collapse:collapse;margin:.5rem 0;font-size:.7rem}
+.msg-text th{background:var(--sidebar-hover);border:1px solid var(--border);padding:.3rem .5rem;font-weight:600;text-align:left;color:#fff}
+.msg-text td{border:1px solid var(--border);padding:.25rem .5rem;color:var(--text)}
+.msg-text tr:nth-child(even) td{background:#1a1a1a}
+.inline-code{font-family:var(--font);font-size:.7em;background:var(--sidebar-hover);border:1px solid var(--border);padding:.1rem .3rem;border-radius:3px;color:var(--accent)}
+.code-block{border-radius:8px;overflow:hidden;margin:.5rem 0;border:1px solid var(--code-border);background:#1e1e2e;position:relative}
+.code-header{background:#2a2a3e;display:flex;align-items:center;padding:.5rem .75rem;border-bottom:1px solid var(--code-border);position:relative}
+.code-lang{font-family:var(--font);font-size:.65rem;color:#a9b1d6;text-transform:uppercase;letter-spacing:.08em;font-weight:600;background:#3a3a5c;padding:.2rem .5rem;border-radius:4px}
+.copy-btn{background:#3a3a5c;border:none;color:#a9b1d6;border-radius:4px;padding:.3rem .6rem;font-size:.65rem;cursor:pointer;font-family:var(--font);transition:.15s;display:flex;align-items:center;gap:.3rem}
+.copy-btn:hover{background:#4a4a6c;color:#fff}
+.code-block pre{background:#1e1e2e;padding:0;overflow-x:auto;margin:0;counter-reset:line}
+.code-block pre code{font-family:var(--font);font-size:.75rem;color:#a9b1d6;line-height:1.6;white-space:pre;display:block;padding:.75rem .85rem}
+.code-block pre code .hljs{background:transparent;padding:0}
+.line-numbers{display:inline-block;width:2.5rem;text-align:right;padding-right:.75rem;color:#565869;user-select:none;border-right:1px solid #3a3a5c;margin-right:.75rem}
+.thinking-dots{display:inline-flex;gap:3px;padding:.3rem 0}
+.thinking-dots span{width:5px;height:5px;background:var(--accent);border-radius:50%;opacity:.5;animation:dot .8s infinite}
+.thinking-dots span:nth-child(2){animation-delay:.15s}
+.thinking-dots span:nth-child(3){animation-delay:.3s}
+@keyframes dot{0%,60%,100%{opacity:.5;transform:scale(1)}30%{opacity:1;transform:scale(1.15)}}
+.input-zone{border-top:1px solid var(--border);background:var(--surface);padding:.75rem 1rem;flex-shrink:0}
+.input-inner{max-width:800px;margin:0 auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;transition:.15s}
+.input-inner:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.input-inner textarea{width:100%;background:none;border:none;padding:.6rem .75rem .4rem;color:var(--text);font-family:var(--font);font-size:.75rem;resize:none;outline:none;line-height:1.5;min-height:44px;max-height:180px;display:block}
+.input-inner textarea::placeholder{color:var(--muted)}
+.input-toolbar{display:flex;align-items:center;padding:.35rem .5rem;gap:.5rem}
+.input-hint-txt{font-size:.6rem;color:var(--muted);flex:1;font-family:var(--font)}
+.send-btn{background:var(--accent);border:none;color:#000;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.8rem;transition:.15s;flex-shrink:0}
+.send-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}
+.send-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
+.msg-copy-btn{display:none;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:.6rem;padding:.15rem .4rem;cursor:pointer;margin-top:.25rem;font-family:var(--font);transition:.15s}
+.msg-copy-btn:hover{color:var(--accent);border-color:var(--accent)}
+.msg:hover .msg-copy-btn{display:inline-flex;align-items:center;gap:.25rem}
+.char-count{font-size:.6rem;color:var(--muted);flex:1;font-family:var(--font)}
+.char-count.warn{color:#f59e0b}.char-count.over{color:#ef4444;font-weight:600}
+.hamburger{display:none;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.9rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99}
+.sidebar-overlay.open{display:block}
+@media(max-width:700px){.sidebar{display:flex;position:fixed;left:-240px;top:0;bottom:0;z-index:100;transition:left .25s ease;width:240px}.sidebar.open{left:0}.hamburger{display:flex}.msg-group{padding:.25rem .75rem}}
+</style>
 </head>
 <body>
-
-<nav class="sidebar" role="navigation" aria-label="Conversations">
+<nav class="sidebar">
   <div class="sidebar-top">
     <div class="sidebar-logo">
-      <div class="sidebar-logo-icon" aria-hidden="true">C</div>
-      <div>
-        <span>ClaudeLocal</span>
-        <small>v<?= VERSION ?> · Mistral AI</small>
-      </div>
+      <div class="sidebar-logo-icon">C</div>
+      <div><span>Claude Code</span><small>v<?= VERSION ?></small></div>
     </div>
-    <button class="new-chat-btn" onclick="newConv()" aria-label="Nouvelle conversation">
-      ✏️ Nouvelle conversation
-    </button>
+    <button class="new-chat-btn" onclick="newConv()">⟐ New Chat</button>
   </div>
-
   <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
-    <?php if (!empty($conversations)): ?>
-    <div class="sidebar-section" role="heading" aria-level="2">Récent</div>
-    <?php endif; ?>
-    <div class="conv-list" id="convList" role="list">
+    <?php if (!empty($conversations)): ?><div class="sidebar-section">Recent</div><?php endif; ?>
+    <div class="conv-list" id="convList">
       <?php foreach ($conversations as $c): ?>
-      <div class="conv-item" id="ci-<?= $c['id'] ?>" onclick="loadConv(<?= $c['id'] ?>)" role="listitem" aria-label="<?= h($c['title']) ?>, dernière mise à jour <?= timeAgo($c['updated_at']) ?>">
-        <span class="conv-icon" aria-hidden="true">💬</span>
+      <div class="conv-item" id="ci-<?= $c['id'] ?>" onclick="loadConv(<?= $c['id'] ?>)">
+        <span class="conv-icon"><?= h($PERSONAS[$c['persona']]['icon'] ?? '◇') ?></span>
         <span class="conv-title"><?= h($c['title']) ?></span>
-        <span class="conv-time" aria-label="Dernière mise à jour <?= timeAgo($c['updated_at']) ?>"><?= timeAgo($c['updated_at']) ?></span>
-        <button class="conv-del" onclick="event.stopPropagation();delConv(<?= $c['id'] ?>)" title="Supprimer" aria-label="Supprimer la conversation <?= h($c['title']) ?>">✕</button>
+        <span class="conv-time"><?= timeAgo($c['updated_at']) ?></span>
+        <button class="conv-del" onclick="event.stopPropagation();delConv(<?= $c['id'] ?>)" title="Delete">×</button>
       </div>
       <?php endforeach; ?>
-      <?php if (empty($conversations)): ?>
-      <div class="conv-empty" role="status">
-        Aucune conversation.<br>Clique sur « Nouvelle conversation »
-      </div>
-      <?php endif; ?>
+      <?php if (empty($conversations)): ?><div style="padding:1.5rem .75rem;font-size:.7rem;color:var(--muted);text-align:center;line-height:1.6">No conversations yet.<br>Click "New Chat" to start.</div><?php endif; ?>
     </div>
   </div>
-
   <div class="sidebar-bottom">
-    <div class="api-status" onclick="showKeyPopup()" role="button" aria-label="Configurer la clé API">
-      <div class="api-dot <?= $api_key ? 'ok' : 'no' ?>" aria-hidden="true"></div>
-      <span class="api-label"><?= $api_key ? 'Clé API configurée' : 'Clé API manquante' ?></span>
-      <span class="api-edit" aria-hidden="true">✏️</span>
+    <div class="api-status" onclick="showKeyPopup()">
+      <div class="api-dot <?= $api_key ? 'ok' : 'no' ?>"></div>
+      <span class="api-label"><?= $api_key ? 'API Key set' : 'No API Key' ?></span>
+      <span class="api-edit">⚙</span>
     </div>
-    <button class="sidebar-btn" onclick="toggleSidebar()" aria-label="Fermer la barre latérale" aria-expanded="true">
-      &lt;&lt; Réduire
-    </button>
   </div>
 </nav>
-
-<div class="main" role="main">
-  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()" aria-hidden="true"></div>
-
-  <header class="topbar" id="topbar" role="banner">
-    <button class="hamburger" onclick="toggleSidebar()" aria-label="Menu" aria-expanded="true">☰</button>
-    <div class="topbar-title" id="topbarTitle">ClaudeLocal</div>
-
-    <div class="model-select-container">
-      <label for="modelSelect" class="visually-hidden">Modèle d'IA</label>
-      <select class="model-select" id="modelSelect" onchange="updateConvModel()" aria-label="Sélectionner le modèle d'IA">
-        <?php foreach ($MODELS as $k => $m): ?>
-        <option value="<?= h($k) ?>"><?= h($m['label']) ?> — <?= h($m['desc']) ?></option>
-        <?php endforeach; ?>
-      </select>
-    </div>
-
-    <div class="persona-select-container">
-      <label for="personaSelect" class="visually-hidden">Personnalité</label>
-      <select class="persona-select" id="personaSelect" onchange="updateConvPersona()" aria-label="Sélectionner la personnalité">
-        <?php foreach ($PERSONAS as $k => $p): ?>
-        <option value="<?= h($k) ?>"><?= h($p['icon']) ?> <?= h($p['label']) ?></option>
-        <?php endforeach; ?>
-      </select>
-    </div>
-
-    <button class="topbar-btn" onclick="toggleFocusMode()" title="Mode focus" aria-label="Activer le mode focus">⛶</button>
-    <button class="topbar-btn" onclick="captureScreen()" title="Capturer la conversation" aria-label="Capturer l'écran">📸</button>
-    <button class="topbar-btn" onclick="toggleDarkMode()" title="Mode sombre" aria-label="Basculer en mode sombre" id="darkModeToggle">🌙</button>
-    <button class="topbar-btn" onclick="showShortcuts()" title="Raccourcis clavier" aria-label="Afficher les raccourcis clavier">⌨️</button>
-  </header>
-
-  <div id="welcomeScreen" class="welcome" role="region" aria-label="Écran d'accueil">
-    <div class="welcome-logo" aria-hidden="true">C</div>
-    <h1>Bonjour 👋</h1>
-    <p>Ton assistant IA local propulsé par Mistral.<br>Crée une conversation ou sélectionne une suggestion.</p>
-    <div class="suggestions" role="list">
-      <div class="suggestion" onclick="quickStart('Explique-moi comment fonctionne le coefficient de marée')" role="listitem" tabindex="0" aria-label="Suggestion: Coefficient de marée">
-        <span aria-hidden="true">🌊</span>
-        <div>
-          <strong>Coefficient de marée</strong>
-          <small>Comment ça fonctionne ?</small>
-        </div>
-      </div>
-      <div class="suggestion" onclick="quickStart('Écris-moi une fonction PHP pour appeler une API REST avec gestion des erreurs')" role="listitem" tabindex="0" aria-label="Suggestion: Code PHP">
-        <span aria-hidden="true">💻</span>
-        <div>
-          <strong>Code PHP</strong>
-          <small>Appel API REST sécurisé</small>
-        </div>
-      </div>
-      <div class="suggestion" onclick="quickStart('Quels sont les meilleurs endroits pour pêcher à pied en Loire-Atlantique en respectant la réglementation ?')" role="listitem" tabindex="0" aria-label="Suggestion: Pêche à pied">
-        <span aria-hidden="true">🦀</span>
-        <div>
-          <strong>Pêche à pied</strong>
-          <small>Loire-Atlantique</small>
-        </div>
-      </div>
-      <div class="suggestion" onclick="quickStart('Résume-moi les dernières avancées sur la myocardite et les vaccins ARNm avec des sources scientifiques fiables')" role="listitem" tabindex="0" aria-label="Suggestion: Recherche médicale">
-        <span aria-hidden="true">🔬</span>
-        <div>
-          <strong>Recherche médicale</strong>
-          <small>Myocardite et vaccins ARNm</small>
-        </div>
-      </div>
+<div class="main">
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+  <div class="topbar" id="topbar">
+    <button class="hamburger" onclick="toggleSidebar()" title="Menu">☰</button>
+    <div class="topbar-title" id="topbarTitle">Claude Code</div>
+    <select class="model-select" id="modelSelect" onchange="updateConvModel()"><?php foreach ($MODELS as $k => $m): ?><option value="<?= h($k) ?>"><?= h($m['label']) ?></option><?php endforeach; ?></select>
+    <select class="persona-select" id="personaSelect" onchange="updateConvPersona()"><?php foreach ($PERSONAS as $k => $p): ?><option value="<?= h($k) ?>"><?= h($p['icon']) ?> <?= h($p['label']) ?></option><?php endforeach; ?></select>
+  </div>
+  <div id="welcomeScreen" class="welcome">
+    <div class="welcome-logo">C</div>
+    <h1>Welcome to Claude Code</h1>
+    <p>Your local AI coding assistant powered by Mistral AI.<br>Start a new conversation or try a suggestion below.</p>
+    <div class="suggestions">
+      <div class="suggestion" onclick="quickStart('Write a PHP function to call a REST API with error handling')">⟐ PHP REST API client</div>
+      <div class="suggestion" onclick="quickStart('Explain how to implement JWT authentication in Node.js')">⟐ JWT Auth in Node.js</div>
+      <div class="suggestion" onclick="quickStart('Create a responsive CSS grid layout with 3 columns')">⟐ CSS Grid Layout</div>
+      <div class="suggestion" onclick="quickStart('Write a Python script to parse JSON and export to CSV')">⟐ Python JSON to CSV</div>
     </div>
   </div>
-
-  <div id="chatScreen" style="display:none" role="region" aria-label="Zone de chat">
-    <div class="chat-area" id="chatArea" role="log" aria-live="polite">
-      <div class="msg-group" id="msgContainer" role="list"></div>
-    </div>
+  <div id="chatScreen" style="display:none;flex:1;overflow:hidden;flex-direction:column;position:relative">
+    <div class="chat-area" id="chatArea"><div class="msg-group" id="msgContainer"></div></div>
+    <div id="dragOverlay" style="display:none;position:absolute;inset:0;background:rgba(38,38,38,.85);border:2px dashed var(--accent);border-radius:8px;margin:1rem;z-index:100;align-items:center;justify-content:center;pointer-events:none"><div style="text-align:center;color:var(--text);font-size:.9rem;font-family:var(--font)"><div style="font-size:2rem;margin-bottom:.5rem">🖼️</div>Déposer l'image ici</div></div>
   </div>
-
-  <div class="input-zone" role="form" aria-label="Zone de saisie">
+  <div class="input-zone">
     <div class="input-inner">
-      <label for="msgInput" class="visually-hidden">Message</label>
-      <textarea id="msgInput" rows="1"
-        placeholder="Envoyer un message… (Entrée pour envoyer, Maj+Entrée pour nouvelle ligne)"
-        onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCount(this)"
-        aria-label="Saisissez votre message ici" aria-multiline="true"></textarea>
-
-      <div id="imgPreviewBar" style="display:none" role="region" aria-label="Prévisualisation de l'image">
-        <div style="display:flex;align-items:center;gap:.6rem">
-          <img id="imgPreview" style="height:48px;border-radius:6px;border:1px solid var(--border)" alt="Prévisualisation de l'image jointe">
-          <span id="imgPreviewName" style="font-size:.75rem;color:var(--muted);flex:1"></span>
-          <button onclick="removeImage()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.9rem" title="Supprimer" aria-label="Supprimer l'image">✕</button>
-        </div>
-      </div>
-
+      <div id="imagePreview" style="display:none;padding:.5rem .75rem;border-bottom:1px solid var(--border);gap:.5rem;flex-wrap:wrap"></div>
+      <textarea id="msgInput" rows="1" placeholder="Ask anything... (Enter to send, Shift+Enter for new line)" onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCount(this)"></textarea>
       <div class="input-toolbar">
-        <span class="char-count" id="charCount" aria-live="polite">0 / <?= MAX_MESSAGE_LENGTH ?></span>
-        <input type="file" id="imgInput" accept="image/*,.heic,.heif" style="display:none" onchange="handleImageSelect(this)" aria-label="Joindre une image">
-        <button class="topbar-btn" onclick="document.getElementById('imgInput').click()" title="Joindre une image" aria-label="Joindre une image">📎</button>
-        <span class="input-hint-txt" id="convInfo" style="display:none" aria-live="polite"></span>
-        <button class="send-btn" id="sendBtn" onclick="sendMsg()" disabled title="Envoyer" aria-label="Envoyer le message">➤</button>
+        <span class="char-count" id="charCount">0 / 8000</span>
+        <span class="input-hint-txt" id="convInfo" style="display:none">Select or create a conversation</span>
+        <input type="file" id="imageInput" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none" onchange="handleImageSelect(event)">
+        <button class="send-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);width:28px;height:28px;font-size:.75rem">📎</button>
+        <input type="file" id="fileInput" accept=".php,.js,.ts,.py,.html,.css,.txt,.csv,.json,.md,.sql" style="display:none" onchange="handleFileSelect(event)">
+        <button class="send-btn" id="fileAttachBtn" onclick="document.getElementById('fileInput').click()" title="Attach file" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);width:28px;height:28px;font-size:.75rem">📄</button>
+        <button class="send-btn" id="sendBtn" onclick="sendMsg()" disabled title="Send (Enter)">➤</button>
       </div>
     </div>
   </div>
 </div>
-
-<div class="key-popup" id="keyPopup" style="display:<?= $api_key ? 'none' : 'flex' ?>" role="dialog" aria-modal="true" aria-labelledby="keyPopupTitle">
+<div class="key-popup" id="keyPopup" style="display:<?= $api_key ? 'none' : 'flex' ?>">
   <div class="key-box">
-    <h2 id="keyPopupTitle">🔑 Configurer la clé API Mistral</h2>
-    <p>Colle ta clé API Mistral pour commencer. Elle sera sauvegardée uniquement dans ta session de navigateur.</p>
-    <form method="post" class="key-input-row" onsubmit="return validateKey()">
-      <label for="keyInput" class="visually-hidden">Clé API</label>
-      <input type="password" name="api_key" class="key-input" id="keyInput"
-        placeholder="Colle ta clé ici..." autocomplete="off" required
-        aria-label="Saisissez votre clé API Mistral">
-      <button type="submit" name="set_key" value="1" class="key-save-btn">Sauvegarder</button>
+    <h2>⚙ Configure API Key</h2>
+    <p>Enter your Mistral AI API key. It will be stored in your local session.</p>
+    <form method="post" class="key-input-row">
+      <input type="password" name="api_key" class="key-input" id="keyInput" placeholder="sk-..." autocomplete="off">
+      <button type="submit" name="set_key" value="1" class="key-save-btn">Save</button>
     </form>
-    <button onclick="hideKeyPopup()" style="margin-top:.8rem;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.85rem" aria-label="Annuler">Annuler</button>
-    <div class="key-hint">
-      <p>Tu n'as pas de clé API ? <a href="https://console.mistral.ai/" target="_blank" rel="noopener noreferrer">Obtiens-en une ici</a></p>
-    </div>
+    <?php if ($api_key): ?><button onclick="hideKeyPopup()" style="margin-top:.8rem;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;font-family:var(--font)">Cancel</button><?php endif; ?>
   </div>
 </div>
-
-<div class="shortcuts-popup" id="shortcutsPopup" style="display:none" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
-  <div class="shortcuts-box">
-    <div class="shortcuts-header">
-      <h2 id="shortcutsTitle">Raccourcis clavier</h2>
-      <button onclick="hideShortcuts()" aria-label="Fermer">✕</button>
-    </div>
-    <div class="shortcuts-grid">
-      <div class="shortcut-item">
-        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>N</kbd></div>
-        <div class="shortcut-desc">Nouvelle conversation</div>
-      </div>
-      <div class="shortcut-item">
-        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>/</kbd></div>
-        <div class="shortcut-desc">Focus sur la zone de saisie</div>
-      </div>
-      <div class="shortcut-item">
-        <div class="shortcut-keys"><kbd>↑</kbd></div>
-        <div class="shortcut-desc">Éditer le dernier message</div>
-      </div>
-      <div class="shortcut-item">
-        <div class="shortcut-keys"><kbd>Maj</kbd> + <kbd>Entrée</kbd></div>
-        <div class="shortcut-desc">Nouvelle ligne</div>
-      </div>
-      <div class="shortcut-item">
-        <div class="shortcut-keys"><kbd>Entrée</kbd></div>
-        <div class="shortcut-desc">Envoyer le message</div>
-      </div>
-      <div class="shortcut-item">
-        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>↑</kbd></div>
-        <div class="shortcut-desc">Défilement vers le haut</div>
-      </div>
-      <div class="shortcut-item">
-        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>↓</kbd></div>
-        <div class="shortcut-desc">Défilement vers le bas</div>
-      </div>
-      <div class="shortcut-item">
-        <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>B</kbd></div>
-        <div class="shortcut-desc">Mode sombre</div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <script>
-window._CONFIG = {
-    API_KEY_SET: <?= $api_key ? 'true' : 'false' ?>,
-    MAX_MESSAGE_LENGTH: <?= MAX_MESSAGE_LENGTH ?>,
-    MODELS: <?= json_encode($MODELS) ?>,
-    PERSONAS: <?= json_encode($PERSONAS) ?>
-};
+const API_KEY_SET = <?= $api_key ? 'true' : 'false' ?>;
+let currentConvId = null, sending = false, selectedImageBase64 = null, selectedImageType = null, selectedFileContent = null, selectedFileName = null, abortController = null, currentStreamingMsgEl = null;
+
+// Drag and drop image handling
+function setupDragAndDrop(){
+    const chatScreen = document.getElementById('chatScreen');
+    const dragOverlay = document.getElementById('dragOverlay');
+    
+    chatScreen.addEventListener('dragover', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.types.includes('Files')) {
+            dragOverlay.style.display = 'flex';
+        }
+    });
+    
+    chatScreen.addEventListener('dragleave', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.target === chatScreen || e.target === document.getElementById('chatArea') || e.target === document.getElementById('msgContainer')) {
+            dragOverlay.style.display = 'none';
+        }
+    });
+    
+    chatScreen.addEventListener('drop', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        dragOverlay.style.display = 'none';
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleImageFile(files[0]);
+        }
+    });
+}
+
+// Handle image file (from drag-drop or paste)
+function handleImageFile(file){
+    if (!file) return;
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+        alert('Format non supporté. Veuillez utiliser jpg, png, gif ou webp.');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e){
+        selectedImageBase64 = e.target.result;
+        selectedImageType = file.type;
+        showImagePreview();
+    };
+    reader.readAsDataURL(file);
+}
+
+// Paste handler for images from clipboard
+function setupPasteHandler(){
+    const msgInput = document.getElementById('msgInput');
+    msgInput.addEventListener('paste', function(e){
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const file = items[i].getAsFile();
+                handleImageFile(file);
+                break;
+            }
+        }
+    });
+}
+
+function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open')}
+function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='📋 Copy',1500)})}
+function updateCharCount(el){const l=el.value.length,m=8000,c=document.getElementById('charCount');if(!c)return;c.textContent=l+' / '+m;c.className='char-count'+(l>m?' over':l>m*.8?' warn':'')}
+function showKeyPopup(){document.getElementById('keyPopup').style.display='flex'}
+function hideKeyPopup(){document.getElementById('keyPopup').style.display='none'}
+function handleImageSelect(event){const file=event.target.files[0];if(!file)return;const validTypes=['image/jpeg','image/png','image/gif','image/webp'];if(!validTypes.includes(file.type)){alert('Please select a valid image (jpg, png, gif, webp)');return;}const reader=new FileReader();reader.onload=function(e){selectedImageBase64=e.target.result;selectedImageType=file.type;showImagePreview()};reader.readAsDataURL(file)}
+function showImagePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style=\"position:relative\"><img src=\"${selectedImageBase64}\" style=\"height:60px;border-radius:4px;border:1px solid var(--border)\"><button onclick=\"clearImage()\" style=\"position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center\">×</button></div>`}
+function clearImage(){selectedImageBase64=null;selectedImageType=null;document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML='';document.getElementById('imageInput').value=''}
+function handleFileSelect(event){const file=event.target.files[0];if(!file)return;const validExts=['.php','.js','.ts','.py','.html','.css','.txt','.csv','.json','.md','.sql'];const ext='.'+file.name.split('.').pop().toLowerCase();if(!validExts.includes(ext)){alert('Please select a valid file type (.php, .js, .ts, .py, .html, .css, .txt, .csv, .json, .md, .sql)');return;}if(file.size>512000){alert('File size exceeds 500KB limit');return;}const reader=new FileReader();reader.onload=function(e){selectedFileContent=e.target.result;selectedFileName=file.name;showFilePreview()};reader.readAsText(file)}
+function showFilePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style="display:flex;align-items:center;gap:.5rem;background:var(--surface);padding:.3rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;max-width:200px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 ${esc(selectedFileName)}</span><button onclick="clearFile()" style="background:#ef4444;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button></div>`}
+function clearFile(){selectedFileContent=null;selectedFileName=null;document.getElementById('fileInput').value='';document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML=''}
+async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d=await r.json();if(d.success){addConvToSidebar(d.id,'New conversation');await loadConv(d.id)}}
+function addConvToSidebar(id,title){const l=document.getElementById('convList'),e=l.querySelector('[style]');if(e)e.remove();const el=document.createElement('div');el.className='conv-item';el.id='ci-'+id;el.onclick=()=>loadConv(id);el.innerHTML=`<span class="conv-icon">◇</span><span class="conv-title">${esc(title)}</span><span class="conv-time">now</span><button class="conv-del" onclick="event.stopPropagation();delConv(${id})">×</button>`;l.prepend(el)}
+async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages)appendMessage(m.role,m.content,false);document.getElementById('convInfo').textContent=d.conv.model;updateSendButtonState();document.getElementById('msgInput').focus();scrollBottom()}
+async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id){currentConvId=null;document.getElementById('chatScreen').style.display='none';document.getElementById('welcomeScreen').style.display='flex';document.getElementById('topbarTitle').textContent='Claude Code';updateSendButtonState()}}
+
+function updateSendButtonState(){
+    const sendBtn = document.getElementById('sendBtn');
+    if (sending) {
+        sendBtn.disabled = true;
+        sendBtn.textContent = '■';
+        sendBtn.style.background = '#ef4444';
+        sendBtn.style.color = '#fff';
+    } else {
+        sendBtn.disabled = !API_KEY_SET;
+        sendBtn.textContent = '➤';
+        sendBtn.style.background = '';
+        sendBtn.style.color = '';
+    }
+}
+
+async function stopStreaming(){
+    if(abortController){
+        abortController.abort();
+        abortController = null;
+    }
+    sending = false;
+    updateSendButtonState();
+    document.getElementById('msgInput').focus();
+}
+
+async function sendMsg(){
+    if(sending||!currentConvId)return;
+    const input=document.getElementById('msgInput'),msg=input.value.trim();
+    if(!msg&&!selectedImageBase64&&!selectedFileContent)return;
+    
+    // Check if we should stop streaming instead
+    if(sending && abortController){
+        stopStreaming();
+        return;
+    }
+    
+    sending=true;
+    input.value='';
+    input.style.height='auto';
+    updateCharCount(input);
+    updateSendButtonState();
+    
+    const hasImage=!!selectedImageBase64;
+    const hasFile=!!selectedFileContent;
+    
+    if(hasImage){
+        appendMessageWithImage('user',msg,selectedImageBase64);
+        const imageData=selectedImageBase64;
+        const imageType=selectedImageType;
+        clearImage();
+        await sendMultimodalMessage(msg,imageData,imageType);
+    }else if(hasFile){
+        const fileName=selectedFileName;
+        const fileContent=selectedFileContent;
+        clearFile();
+        appendMessage('user',`📄 ${fileName}\n\n${msg}`);
+        const msgId = 'msg-' + Date.now();
+        currentStreamingMsgEl = appendStreamingMessage(msgId);
+        scrollBottom();
+        
+        abortController = new AbortController();
+        const signal = abortController.signal;
+        
+        try{
+            const formData = new FormData();
+            formData.append('conv_id', currentConvId);
+            formData.append('content', msg);
+            formData.append('file_content', fileContent);
+            formData.append('file_name', fileName);
+            
+            const response = await fetch('?api=stream_message', {
+                method: 'POST',
+                body: formData,
+                signal: signal
+            });
+            
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullContent = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.slice(6);
+                        if (jsonStr === '[DONE]') continue;
+                        
+                        try {
+                            const data = JSON.parse(jsonStr);
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                            if (data.content) {
+                                fullContent += data.content;
+                                updateStreamingMessage(currentStreamingMsgEl, fullContent);
+                                scrollBottom();
+                            }
+                            if (data.done) {
+                                // Streaming complete
+                                finalizeStreamingMessage(currentStreamingMsgEl, fullContent);
+                                
+                                // Update conversation title if this is the first message
+                                const ci = document.getElementById('ci-' + currentConvId);
+                                if (ci) {
+                                    const t = ci.querySelector('.conv-title');
+                                    if (t && t.textContent === 'New conversation') {
+                                        // Generate automatic title using Mistral API
+                                        generateConversationTitle(currentConvId, msg);
+                                    }
+                                    const tm = ci.querySelector('.conv-time');
+                                    if (tm) tm.textContent = 'now';
+                                }
+                            }
+                        } catch (e) {
+                            if (!(e instanceof SyntaxError)) throw e;
+                        }
+                    }
+                }
+            }
+        } catch(e){
+            if(e.name === 'AbortError'){
+                // User stopped streaming
+                if(currentStreamingMsgEl){
+                    finalizeStreamingMessage(currentStreamingMsgEl, currentStreamingMsgEl.dataset.content || '');
+                }
+            } else {
+                removeThinking(currentStreamingMsgEl?.id);
+                appendError('Network error: ' + e.message);
+            }
+        } finally {
+            abortController = null;
+            sending = false;
+            currentStreamingMsgEl = null;
+            updateSendButtonState();
+            scrollBottom();
+        }
+    }else{
+        appendMessage('user',msg);
+        const msgId = 'msg-' + Date.now();
+        currentStreamingMsgEl = appendStreamingMessage(msgId);
+        scrollBottom();
+        
+        abortController = new AbortController();
+        const signal = abortController.signal;
+        
+        try{
+            const formData = new FormData();
+            formData.append('conv_id', currentConvId);
+            formData.append('content', msg);
+            
+            const response = await fetch('?api=stream_message', {
+                method: 'POST',
+                body: formData,
+                signal: signal
+            });
+            
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullContent = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.slice(6);
+                        if (jsonStr === '[DONE]') continue;
+                        
+                        try {
+                            const data = JSON.parse(jsonStr);
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                            if (data.content) {
+                                fullContent += data.content;
+                                updateStreamingMessage(currentStreamingMsgEl, fullContent);
+                                scrollBottom();
+                            }
+                            if (data.done) {
+                                // Streaming complete
+                                finalizeStreamingMessage(currentStreamingMsgEl, fullContent);
+                                
+                                // Update conversation title if this is the first message
+                                const ci = document.getElementById('ci-' + currentConvId);
+                                if (ci) {
+                                    const t = ci.querySelector('.conv-title');
+                                    if (t && t.textContent === 'New conversation') {
+                                        // Generate automatic title using Mistral API
+                                        generateConversationTitle(currentConvId, msg);
+                                    }
+                                    const tm = ci.querySelector('.conv-time');
+                                    if (tm) tm.textContent = 'now';
+                                }
+                            }
+                        } catch (e) {
+                            if (!(e instanceof SyntaxError)) throw e;
+                        }
+                    }
+                }
+            }
+        } catch(e){
+            if(e.name === 'AbortError'){
+                // User stopped streaming
+                if(currentStreamingMsgEl){
+                    finalizeStreamingMessage(currentStreamingMsgEl, currentStreamingMsgEl.dataset.content || '');
+                }
+            } else {
+                removeThinking(currentStreamingMsgEl?.id);
+                appendError('Network error: ' + e.message);
+            }
+        } finally {
+            abortController = null;
+            sending = false;
+            currentStreamingMsgEl = null;
+            updateSendButtonState();
+            scrollBottom();
+        }
+    }
+}
+async function sendMultimodalMessage(text,imageBase64,imageType){const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const formData=new FormData();formData.append('conv_id',currentConvId);formData.append('text',text||'');formData.append('image_base64',imageBase64);formData.append('image_type',imageType);const r=await fetch('?api=send_multimodal',{method:'POST',body:formData});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');const titleText=text||'Image';if(t&&t.textContent==='New conversation'){generateConversationTitle(currentConvId,text||'Image conversation')}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}
+function appendMessage(role,content,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';const rendered=role==='user'?`<p>${esc(content).replace(/\n/g,'<br>')}</p>`:renderMd(content);div.innerHTML=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">${rendered}</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copy</button></div>`;container.appendChild(div);if(scroll)scrollBottom();if(role==='assistant')applyHighlighting()}
+function appendMessageWithImage(role,text,imageBase64,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';let html=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">`;if(text)html+=`<p>${esc(text).replace(/\n/g,'<br>')}</p>`;html+=`<img src="${imageBase64}" style="max-width:300px;border-radius:6px;border:1px solid var(--border);margin-top:.5rem">`;html+=`</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(text)}">📋 Copy</button></div>`;div.innerHTML=html;container.appendChild(div);if(scroll)scrollBottom();if(role==='assistant')applyHighlighting()}
+function appendThinking(id){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.className='msg';d.id=id;d.innerHTML=`<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text"><div class="thinking-dots"><span></span><span></span><span></span></div></div></div>`;c.appendChild(d)}
+function removeThinking(id){const el=document.getElementById(id);if(el)el.remove()}
+function appendError(msg){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.style.cssText='max-width:800px;margin:0 auto;padding:.5rem 1rem';d.innerHTML=`<div style="background:#2a1a1a;border:1px solid #ef4444;border-radius:6px;padding:.6rem .8rem;color:#ef4444;font-size:.7rem">✗ ${esc(msg)}</div>`;c.appendChild(d)}
+
+// Streaming message functions
+function appendStreamingMessage(id){
+    const container = document.getElementById('msgContainer');
+    const div = document.createElement('div');
+    div.className = 'msg';
+    div.id = id;
+    div.dataset.content = '';
+    div.innerHTML = `<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text streaming-text"></div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="">📋 Copy</button></div>`;
+    container.appendChild(div);
+    return div;
+}
+
+function updateStreamingMessage(el, content){
+    if(!el) return;
+    el.dataset.content = content;
+    const textEl = el.querySelector('.streaming-text');
+    if(textEl){
+        textEl.innerHTML = renderMd(content);
+    }
+    const copyBtn = el.querySelector('.msg-copy-btn');
+    if(copyBtn){
+        copyBtn.setAttribute('data-text', content);
+    }
+}
+
+function finalizeStreamingMessage(el, content){
+    if(!el) return;
+    el.classList.add('finalized');
+    const textEl = el.querySelector('.streaming-text');
+    if(textEl){
+        textEl.classList.remove('streaming-text');
+        textEl.innerHTML = renderMd(content);
+        applyHighlighting();
+    }
+}
+function renderMd(s){
+    marked.setOptions({breaks:true,gfm:true});
+    let html = marked.parse(s);
+    html = html.replace(/<pre><code class="language-(\w*)">([\s\S]*?)<\/code><\/pre>/g, function(match, lang, code) {
+        const language = lang || 'text';
+        const decodedCode = code.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+        const lines = decodedCode.split('\n');
+        const lineNumbers = lines.map((_,i)=>i+1).join('\n');
+        return `<div class="code-block"><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" onclick="copyCode(this)">📋 <span>Copy</span></button></div><pre><code class="language-${language}"><span class="line-numbers">${lineNumbers}</span>${decodedCode}</code></pre></div>`;
+    });
+    html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, function(match, code) {
+        const decodedCode = code.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+        const lines = decodedCode.split('\n');
+        const lineNumbers = lines.map((_,i)=>i+1).join('\n');
+        return `<div class="code-block"><div class="code-header"><span class="code-lang">text</span><button class="copy-btn" onclick="copyCode(this)">📋 <span>Copy</span></button></div><pre><code><span class="line-numbers">${lineNumbers}</span>${decodedCode}</code></pre></div>`;
+    });
+    return html;
+}
+function copyCode(btn){
+    const codeBlock = btn.closest('.code-block');
+    const codeEl = codeBlock.querySelector('code');
+    const lineNumbersEl = codeEl.querySelector('.line-numbers');
+    let code = codeEl.textContent;
+    if(lineNumbersEl){
+        const lines = code.split('\n');
+        code = lines.map(line => line.replace(/^\d+\s*/, '')).join('\n');
+    }
+    navigator.clipboard.writeText(code).then(()=>{
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '✓ <span>Copied</span>';
+        setTimeout(()=>{ btn.innerHTML = originalHTML; }, 2000);
+    });
+}
+function applyHighlighting(){
+    if(typeof hljs !== 'undefined'){
+        document.querySelectorAll('.code-block pre code').forEach((block)=>{
+            const clone = block.cloneNode(true);
+            const lineNumbersEl = clone.querySelector('.line-numbers');
+            if(lineNumbersEl){ lineNumbersEl.remove(); }
+            const cleanCode = clone.textContent;
+            block.textContent = cleanCode;
+            hljs.highlightElement(block);
+        });
+    }
+}
+async function updateConvModel(){if(!currentConvId)return;const m=document.getElementById('modelSelect').value;await fetch('?api=rename',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${currentConvId}&title=${encodeURIComponent(document.getElementById('topbarTitle').textContent)}`});document.getElementById('convInfo').textContent=m}
+async function updateConvPersona(){}
+async function generateConversationTitle(convId, firstMessage){
+    try{
+        const formData = new FormData();
+        formData.append('id', convId);
+        formData.append('first_message', firstMessage);
+        const r = await fetch('?api=generate_title', { method: 'POST', body: formData });
+        const d = await r.json();
+        if(d.success && d.title){
+            const ci = document.getElementById('ci-' + convId);
+            if(ci){
+                const t = ci.querySelector('.conv-title');
+                if(t){
+                    t.textContent = d.title.length > 35 ? d.title.slice(0, 35) + '…' : d.title;
+                    document.getElementById('topbarTitle').textContent = t.textContent;
+                }
+            }
+        }
+    }catch(e){
+        // If title generation fails, keep default title
+        console.log('Title generation failed:', e.message);
+    }
+}
+function esc(s){const d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML}
+function scrollBottom(){const ca=document.getElementById('chatArea');if(ca)setTimeout(()=>ca.scrollTop=ca.scrollHeight,50)}
+function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}}
+function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,180)+'px'}
+document.addEventListener('DOMContentLoaded',()=>{
+    document.getElementById('msgInput').focus();
+    const fc=document.querySelector('.conv-item');
+    if(fc){const id=parseInt(fc.id.replace('ci-',''));if(id)loadConv(id)}
+    setupDragAndDrop();
+    setupPasteHandler();
+});
 </script>
-<script src="app.js"></script>
 </body>
 </html>
