@@ -356,6 +356,142 @@ if (isset($_GET['api'])) {
         echo json_encode(['success' => true, 'reply' => $reply]);
         exit;
     }
+    
+    // Streaming endpoint for Mistral API
+    if ($act === 'stream_message') {
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache');
+        header('X-Accel-Buffering: no');
+        ob_implicit_flush(true);
+        
+        $conv_id = (int)($_POST['conv_id'] ?? 0);
+        $content = trim($_POST['content'] ?? '');
+        if (!$conv_id || !$content || !$api_key) {
+            echo "data: " . json_encode(['error' => 'Missing parameters or API key not configured']) . "\n\n";
+            exit;
+        }
+        
+        $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
+        $conv->execute([$conv_id]);
+        $conv = $conv->fetch(PDO::FETCH_ASSOC);
+        if (!$conv) {
+            echo "data: " . json_encode(['error' => 'Conversation not found']) . "\n\n";
+            exit;
+        }
+        
+        // Save user message
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $content]);
+        
+        $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id=?");
+        $count->execute([$conv_id]);
+        if ($count->fetchColumn() <= 1) {
+            $title = mb_substr($content, 0, 50);
+            db()->prepare("UPDATE conversations SET title=?, updated_at=datetime('now') WHERE id=?")->execute([$title, $conv_id]);
+        } else {
+            db()->prepare("UPDATE conversations SET updated_at=datetime('now') WHERE id=?")->execute([$conv_id]);
+        }
+        
+        global $PERSONAS;
+        $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
+        $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
+        
+        // Get last 10 messages for context
+        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
+        $history->execute([$conv_id]);
+        $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
+        $msgs = array_reverse($msgs);
+        
+        // Filter for proper user/assistant alternation
+        $filtered_msgs = [];
+        $expected_role = 'user';
+        foreach ($msgs as $m) {
+            if ($m['role'] === $expected_role) {
+                $filtered_msgs[] = $m;
+                $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+            }
+        }
+        
+        if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
+            $filtered_msgs = [];
+            $expected_role = 'assistant';
+            foreach ($msgs as $m) {
+                if ($m['role'] === $expected_role) {
+                    $filtered_msgs[] = $m;
+                    $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+                }
+            }
+            if (!empty($filtered_msgs) && $filtered_msgs[0]['role'] === 'assistant') {
+                array_shift($filtered_msgs);
+            }
+        }
+        
+        foreach ($filtered_msgs as $m) {
+            $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
+        }
+        
+        // Call Mistral API with streaming
+        $payload = json_encode(['model' => $conv['model'], 'messages' => $api_messages, 'max_tokens' => MAX_TOKENS, 'temperature' => 0.7, 'stream' => true]);
+        
+        $fullResponse = '';
+        $ch = curl_init(API_URL);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key],
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_TIMEOUT => 300,
+            CURLOPT_WRITEFUNCTION => function($curl, $data) use (&$fullResponse) {
+                static $buffer = '';
+                $buffer .= $data;
+                
+                // Process complete lines
+                while (($pos = strpos($buffer, "\n")) !== false) {
+                    $line = substr($buffer, 0, $pos);
+                    $buffer = substr($buffer, $pos + 1);
+                    
+                    $line = trim($line);
+                    if (strpos($line, 'data: ') === 0) {
+                        $jsonStr = substr($line, 6);
+                        if ($jsonStr === '[DONE]') {
+                            return strlen($data);
+                        }
+                        $parsed = json_decode($jsonStr, true);
+                        if ($parsed && isset($parsed['choices'][0]['delta']['content'])) {
+                            $chunk = $parsed['choices'][0]['delta']['content'];
+                            $fullResponse .= $chunk;
+                            echo "data: " . json_encode(['content' => $chunk]) . "\n\n";
+                            flush();
+                        }
+                    }
+                }
+                return strlen($data);
+            }
+        ]);
+        
+        curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        
+        if ($cerr) {
+            echo "data: " . json_encode(['error' => 'Network: ' . $cerr]) . "\n\n";
+            exit;
+        }
+        
+        if ($http >= 400) {
+            echo "data: " . json_encode(['error' => 'API error: ' . $http]) . "\n\n";
+            exit;
+        }
+        
+        // Save the full response to database
+        if ($fullResponse !== '') {
+            db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'assistant', $fullResponse]);
+        }
+        
+        echo "data: " . json_encode(['done' => true]) . "\n\n";
+        exit;
+    }
+    
     echo json_encode(['success' => false, 'error' => 'Unknown action']);
     exit;
 }
@@ -564,7 +700,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 </div>
 <script>
 const API_KEY_SET = <?= $api_key ? 'true' : 'false' ?>;
-let currentConvId = null, sending = false, selectedImageBase64 = null, selectedImageType = null;
+let currentConvId = null, sending = false, selectedImageBase64 = null, selectedImageType = null, abortController = null, currentStreamingMsgEl = null;
+
 function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open')}
 function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='📋 Copy',1500)})}
 function updateCharCount(el){const l=el.value.length,m=8000,c=document.getElementById('charCount');if(!c)return;c.textContent=l+' / '+m;c.className='char-count'+(l>m?' over':l>m*.8?' warn':'')}
@@ -575,15 +712,190 @@ function showImagePreview(){const container=document.getElementById('imagePrevie
 function clearImage(){selectedImageBase64=null;selectedImageType=null;document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML='';document.getElementById('imageInput').value=''}
 async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d=await r.json();if(d.success){addConvToSidebar(d.id,'New conversation');await loadConv(d.id)}}
 function addConvToSidebar(id,title){const l=document.getElementById('convList'),e=l.querySelector('[style]');if(e)e.remove();const el=document.createElement('div');el.className='conv-item';el.id='ci-'+id;el.onclick=()=>loadConv(id);el.innerHTML=`<span class="conv-icon">◇</span><span class="conv-title">${esc(title)}</span><span class="conv-time">now</span><button class="conv-del" onclick="event.stopPropagation();delConv(${id})">×</button>`;l.prepend(el)}
-async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages)appendMessage(m.role,m.content,false);document.getElementById('convInfo').textContent=d.conv.model;document.getElementById('sendBtn').disabled=!API_KEY_SET;document.getElementById('msgInput').focus();scrollBottom()}
-async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id){currentConvId=null;document.getElementById('chatScreen').style.display='none';document.getElementById('welcomeScreen').style.display='flex';document.getElementById('topbarTitle').textContent='Claude Code';document.getElementById('sendBtn').disabled=true}}
-async function sendMsg(){if(sending||!currentConvId)return;const input=document.getElementById('msgInput'),msg=input.value.trim();if(!msg&&!selectedImageBase64)return;sending=true;input.value='';input.style.height='auto';updateCharCount(input);document.getElementById('sendBtn').disabled=true;const hasImage=!!selectedImageBase64;if(hasImage){appendMessageWithImage('user',msg,selectedImageBase64);const imageData=selectedImageBase64;const imageType=selectedImageType;clearImage();await sendMultimodalMessage(msg,imageData,imageType)}else{appendMessage('user',msg);const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const r=await fetch('?api=send',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`conv_id=${currentConvId}&content=${encodeURIComponent(msg)}`});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');if(t&&t.textContent==='New conversation'){t.textContent=msg.length>35?msg.slice(0,35)+'…':msg;document.getElementById('topbarTitle').textContent=t.textContent}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}sending=false;document.getElementById('sendBtn').disabled=!API_KEY_SET;scrollBottom()}
+async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages)appendMessage(m.role,m.content,false);document.getElementById('convInfo').textContent=d.conv.model;updateSendButtonState();document.getElementById('msgInput').focus();scrollBottom()}
+async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id){currentConvId=null;document.getElementById('chatScreen').style.display='none';document.getElementById('welcomeScreen').style.display='flex';document.getElementById('topbarTitle').textContent='Claude Code';updateSendButtonState()}}
+
+function updateSendButtonState(){
+    const sendBtn = document.getElementById('sendBtn');
+    if (sending) {
+        sendBtn.disabled = true;
+        sendBtn.textContent = '■';
+        sendBtn.style.background = '#ef4444';
+        sendBtn.style.color = '#fff';
+    } else {
+        sendBtn.disabled = !API_KEY_SET;
+        sendBtn.textContent = '➤';
+        sendBtn.style.background = '';
+        sendBtn.style.color = '';
+    }
+}
+
+async function stopStreaming(){
+    if(abortController){
+        abortController.abort();
+        abortController = null;
+    }
+    sending = false;
+    updateSendButtonState();
+    document.getElementById('msgInput').focus();
+}
+
+async function sendMsg(){
+    if(sending||!currentConvId)return;
+    const input=document.getElementById('msgInput'),msg=input.value.trim();
+    if(!msg&&!selectedImageBase64)return;
+    
+    // Check if we should stop streaming instead
+    if(sending && abortController){
+        stopStreaming();
+        return;
+    }
+    
+    sending=true;
+    input.value='';
+    input.style.height='auto';
+    updateCharCount(input);
+    updateSendButtonState();
+    
+    const hasImage=!!selectedImageBase64;
+    if(hasImage){
+        appendMessageWithImage('user',msg,selectedImageBase64);
+        const imageData=selectedImageBase64;
+        const imageType=selectedImageType;
+        clearImage();
+        await sendMultimodalMessage(msg,imageData,imageType);
+    }else{
+        appendMessage('user',msg);
+        const msgId = 'msg-' + Date.now();
+        currentStreamingMsgEl = appendStreamingMessage(msgId);
+        scrollBottom();
+        
+        abortController = new AbortController();
+        const signal = abortController.signal;
+        
+        try{
+            const formData = new FormData();
+            formData.append('conv_id', currentConvId);
+            formData.append('content', msg);
+            
+            const response = await fetch('?api=stream_message', {
+                method: 'POST',
+                body: formData,
+                signal: signal
+            });
+            
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullContent = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.slice(6);
+                        if (jsonStr === '[DONE]') continue;
+                        
+                        try {
+                            const data = JSON.parse(jsonStr);
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                            if (data.content) {
+                                fullContent += data.content;
+                                updateStreamingMessage(currentStreamingMsgEl, fullContent);
+                                scrollBottom();
+                            }
+                            if (data.done) {
+                                // Streaming complete
+                                finalizeStreamingMessage(currentStreamingMsgEl, fullContent);
+                                
+                                // Update conversation title if needed
+                                const ci = document.getElementById('ci-' + currentConvId);
+                                if (ci) {
+                                    const t = ci.querySelector('.conv-title');
+                                    if (t && t.textContent === 'New conversation') {
+                                        t.textContent = msg.length > 35 ? msg.slice(0, 35) + '…' : msg;
+                                        document.getElementById('topbarTitle').textContent = t.textContent;
+                                    }
+                                    const tm = ci.querySelector('.conv-time');
+                                    if (tm) tm.textContent = 'now';
+                                }
+                            }
+                        } catch (e) {
+                            if (!(e instanceof SyntaxError)) throw e;
+                        }
+                    }
+                }
+            }
+        } catch(e){
+            if(e.name === 'AbortError'){
+                // User stopped streaming
+                if(currentStreamingMsgEl){
+                    finalizeStreamingMessage(currentStreamingMsgEl, currentStreamingMsgEl.dataset.content || '');
+                }
+            } else {
+                removeThinking(currentStreamingMsgEl?.id);
+                appendError('Network error: ' + e.message);
+            }
+        } finally {
+            abortController = null;
+            sending = false;
+            currentStreamingMsgEl = null;
+            updateSendButtonState();
+            scrollBottom();
+        }
+    }
+}
 async function sendMultimodalMessage(text,imageBase64,imageType){const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const formData=new FormData();formData.append('conv_id',currentConvId);formData.append('text',text||'');formData.append('image_base64',imageBase64);formData.append('image_type',imageType);const r=await fetch('?api=send_multimodal',{method:'POST',body:formData});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');const titleText=text||'Image';if(t&&t.textContent==='New conversation'){t.textContent=titleText.length>35?titleText.slice(0,35)+'…':titleText;document.getElementById('topbarTitle').textContent=t.textContent}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}
 function appendMessage(role,content,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';const rendered=role==='user'?`<p>${esc(content).replace(/\n/g,'<br>')}</p>`:renderMd(content);div.innerHTML=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">${rendered}</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copy</button></div>`;container.appendChild(div);if(scroll)scrollBottom()}
 function appendMessageWithImage(role,text,imageBase64,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';let html=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">`;if(text)html+=`<p>${esc(text).replace(/\n/g,'<br>')}</p>`;html+=`<img src="${imageBase64}" style="max-width:300px;border-radius:6px;border:1px solid var(--border);margin-top:.5rem">`;html+=`</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(text)}">📋 Copy</button></div>`;div.innerHTML=html;container.appendChild(div);if(scroll)scrollBottom()}
 function appendThinking(id){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.className='msg';d.id=id;d.innerHTML=`<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text"><div class="thinking-dots"><span></span><span></span><span></span></div></div></div>`;c.appendChild(d)}
 function removeThinking(id){const el=document.getElementById(id);if(el)el.remove()}
 function appendError(msg){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.style.cssText='max-width:800px;margin:0 auto;padding:.5rem 1rem';d.innerHTML=`<div style="background:#2a1a1a;border:1px solid #ef4444;border-radius:6px;padding:.6rem .8rem;color:#ef4444;font-size:.7rem">✗ ${esc(msg)}</div>`;c.appendChild(d)}
+
+// Streaming message functions
+function appendStreamingMessage(id){
+    const container = document.getElementById('msgContainer');
+    const div = document.createElement('div');
+    div.className = 'msg';
+    div.id = id;
+    div.dataset.content = '';
+    div.innerHTML = `<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text streaming-text"></div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="">📋 Copy</button></div>`;
+    container.appendChild(div);
+    return div;
+}
+
+function updateStreamingMessage(el, content){
+    if(!el) return;
+    el.dataset.content = content;
+    const textEl = el.querySelector('.streaming-text');
+    if(textEl){
+        textEl.innerHTML = renderMd(content);
+    }
+    const copyBtn = el.querySelector('.msg-copy-btn');
+    if(copyBtn){
+        copyBtn.setAttribute('data-text', content);
+    }
+}
+
+function finalizeStreamingMessage(el, content){
+    if(!el) return;
+    el.classList.add('finalized');
+    const textEl = el.querySelector('.streaming-text');
+    if(textEl){
+        textEl.classList.remove('streaming-text');
+        textEl.innerHTML = renderMd(content);
+    }
+}
 function renderMd(s){s=s.replace(/```(\w*)\n?([\s\S]*?)```/gm,(_,lang,code)=>`<div class="code-block"><div class="code-header"><span class="code-lang">${esc(lang||'text')}</span><button class="copy-btn" onclick="copyCode(this)">⧉</button></div><pre><code>${esc(code)}</code></pre></div>`);s=s.replace(/`([^`\n]+)`/g,'<code class="inline-code">$1</code>');s=s.replace(/^### (.+)$/gm,'<h3>$1</h3>');s=s.replace(/^## (.+)$/gm,'<h2>$1</h2>');s=s.replace(/^# (.+)$/gm,'<h1>$1</h1>');s=s.replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>');s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');s=s.replace(/\*(.+?)\*/g,'<em>$1</em>');s=s.replace(/^> (.+)$/gm,'<blockquote>$1</blockquote>');s=s.replace(/^[-*•] (.+)$/gm,'<li>$1</li>');s=s.replace(/(<li>.*?<\/li>\n?)+/g,m=>'<ul>'+m+'</ul>');s=s.replace(/^\d+\. (.+)$/gm,'<li>$1</li>');s=s.replace(/^---$/gm,'<hr>');const blocks=s.split(/\n{2,}/);s=blocks.map(b=>{b=b.trim();if(!b)return'';if(/^<(h[1-3]|ul|ol|blockquote|div|hr)/.test(b))return b;return'<p>'+b.replace(/\n/g,'<br>')+'</p>'}).join('\n');return s}
 function copyCode(btn){const code=btn.closest('.code-block').querySelector('code').textContent;navigator.clipboard.writeText(code).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='⧉',1500)})}
 async function quickStart(text){await newConv();document.getElementById('msgInput').value=text;sendMsg()}
