@@ -504,6 +504,9 @@ $conversations = db()->query("SELECT * FROM conversations ORDER BY updated_at DE
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claude Code</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0d0d0d;--sidebar:#0a0a0a;--sidebar-hover:#1a1a1a;--sidebar-active:#262626;--surface:#141414;--border:#262626;--text:#f5f5f5;--muted:#737373;--accent:#d4a574;--accent-hover:#c99663;--user-bg:#1a1a1a;--ai-bg:#0d0d0d;--code-bg:#0a0a0a;--code-text:#e5e5e5;--code-border:#262626;--font:'SF Mono','Monaco','Inconsolata','Fira Code',monospace;--r:6px}
@@ -587,13 +590,15 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 .msg-text td{border:1px solid var(--border);padding:.25rem .5rem;color:var(--text)}
 .msg-text tr:nth-child(even) td{background:#1a1a1a}
 .inline-code{font-family:var(--font);font-size:.7em;background:var(--sidebar-hover);border:1px solid var(--border);padding:.1rem .3rem;border-radius:3px;color:var(--accent)}
-.code-block{border-radius:6px;overflow:hidden;margin:.5rem 0;border:1px solid var(--code-border)}
-.code-header{background:var(--sidebar-hover);display:flex;align-items:center;padding:.3rem .6rem;border-bottom:1px solid var(--code-border)}
-.code-lang{font-family:var(--font);font-size:.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;flex:1}
-.copy-btn{background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:3px;padding:.15rem .4rem;font-size:.6rem;cursor:pointer;font-family:var(--font);transition:.15s}
-.copy-btn:hover{border-color:#404040;color:#fff}
-.code-block pre{background:var(--code-bg);padding:.75rem .85rem;overflow-x:auto;margin:0}
-.code-block pre code{font-family:var(--font);font-size:.7rem;color:var(--code-text);line-height:1.6;white-space:pre}
+.code-block{border-radius:8px;overflow:hidden;margin:.5rem 0;border:1px solid var(--code-border);background:#1e1e2e;position:relative}
+.code-header{background:#2a2a3e;display:flex;align-items:center;padding:.5rem .75rem;border-bottom:1px solid var(--code-border);position:relative}
+.code-lang{font-family:var(--font);font-size:.65rem;color:#a9b1d6;text-transform:uppercase;letter-spacing:.08em;font-weight:600;background:#3a3a5c;padding:.2rem .5rem;border-radius:4px}
+.copy-btn{background:#3a3a5c;border:none;color:#a9b1d6;border-radius:4px;padding:.3rem .6rem;font-size:.65rem;cursor:pointer;font-family:var(--font);transition:.15s;display:flex;align-items:center;gap:.3rem}
+.copy-btn:hover{background:#4a4a6c;color:#fff}
+.code-block pre{background:#1e1e2e;padding:0;overflow-x:auto;margin:0;counter-reset:line}
+.code-block pre code{font-family:var(--font);font-size:.75rem;color:#a9b1d6;line-height:1.6;white-space:pre;display:block;padding:.75rem .85rem}
+.code-block pre code .hljs{background:transparent;padding:0}
+.line-numbers{display:inline-block;width:2.5rem;text-align:right;padding-right:.75rem;color:#565869;user-select:none;border-right:1px solid #3a3a5c;margin-right:.75rem}
 .thinking-dots{display:inline-flex;gap:3px;padding:.3rem 0}
 .thinking-dots span{width:5px;height:5px;background:var(--accent);border-radius:50%;opacity:.5;animation:dot .8s infinite}
 .thinking-dots span:nth-child(2){animation-delay:.15s}
@@ -856,8 +861,8 @@ async function sendMsg(){
     }
 }
 async function sendMultimodalMessage(text,imageBase64,imageType){const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const formData=new FormData();formData.append('conv_id',currentConvId);formData.append('text',text||'');formData.append('image_base64',imageBase64);formData.append('image_type',imageType);const r=await fetch('?api=send_multimodal',{method:'POST',body:formData});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');const titleText=text||'Image';if(t&&t.textContent==='New conversation'){t.textContent=titleText.length>35?titleText.slice(0,35)+'…':titleText;document.getElementById('topbarTitle').textContent=t.textContent}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}
-function appendMessage(role,content,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';const rendered=role==='user'?`<p>${esc(content).replace(/\n/g,'<br>')}</p>`:renderMd(content);div.innerHTML=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">${rendered}</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copy</button></div>`;container.appendChild(div);if(scroll)scrollBottom()}
-function appendMessageWithImage(role,text,imageBase64,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';let html=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">`;if(text)html+=`<p>${esc(text).replace(/\n/g,'<br>')}</p>`;html+=`<img src="${imageBase64}" style="max-width:300px;border-radius:6px;border:1px solid var(--border);margin-top:.5rem">`;html+=`</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(text)}">📋 Copy</button></div>`;div.innerHTML=html;container.appendChild(div);if(scroll)scrollBottom()}
+function appendMessage(role,content,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';const rendered=role==='user'?`<p>${esc(content).replace(/\n/g,'<br>')}</p>`:renderMd(content);div.innerHTML=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">${rendered}</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copy</button></div>`;container.appendChild(div);if(scroll)scrollBottom();if(role==='assistant')applyHighlighting()}
+function appendMessageWithImage(role,text,imageBase64,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';let html=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">`;if(text)html+=`<p>${esc(text).replace(/\n/g,'<br>')}</p>`;html+=`<img src="${imageBase64}" style="max-width:300px;border-radius:6px;border:1px solid var(--border);margin-top:.5rem">`;html+=`</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(text)}">📋 Copy</button></div>`;div.innerHTML=html;container.appendChild(div);if(scroll)scrollBottom();if(role==='assistant')applyHighlighting()}
 function appendThinking(id){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.className='msg';d.id=id;d.innerHTML=`<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text"><div class="thinking-dots"><span></span><span></span><span></span></div></div></div>`;c.appendChild(d)}
 function removeThinking(id){const el=document.getElementById(id);if(el)el.remove()}
 function appendError(msg){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.style.cssText='max-width:800px;margin:0 auto;padding:.5rem 1rem';d.innerHTML=`<div style="background:#2a1a1a;border:1px solid #ef4444;border-radius:6px;padding:.6rem .8rem;color:#ef4444;font-size:.7rem">✗ ${esc(msg)}</div>`;c.appendChild(d)}
@@ -894,11 +899,54 @@ function finalizeStreamingMessage(el, content){
     if(textEl){
         textEl.classList.remove('streaming-text');
         textEl.innerHTML = renderMd(content);
+        applyHighlighting();
     }
 }
-function renderMd(s){s=s.replace(/```(\w*)\n?([\s\S]*?)```/gm,(_,lang,code)=>`<div class="code-block"><div class="code-header"><span class="code-lang">${esc(lang||'text')}</span><button class="copy-btn" onclick="copyCode(this)">⧉</button></div><pre><code>${esc(code)}</code></pre></div>`);s=s.replace(/`([^`\n]+)`/g,'<code class="inline-code">$1</code>');s=s.replace(/^### (.+)$/gm,'<h3>$1</h3>');s=s.replace(/^## (.+)$/gm,'<h2>$1</h2>');s=s.replace(/^# (.+)$/gm,'<h1>$1</h1>');s=s.replace(/\*\*\*(.+?)\*\*\*/g,'<strong><em>$1</em></strong>');s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');s=s.replace(/\*(.+?)\*/g,'<em>$1</em>');s=s.replace(/^> (.+)$/gm,'<blockquote>$1</blockquote>');s=s.replace(/^[-*•] (.+)$/gm,'<li>$1</li>');s=s.replace(/(<li>.*?<\/li>\n?)+/g,m=>'<ul>'+m+'</ul>');s=s.replace(/^\d+\. (.+)$/gm,'<li>$1</li>');s=s.replace(/^---$/gm,'<hr>');const blocks=s.split(/\n{2,}/);s=blocks.map(b=>{b=b.trim();if(!b)return'';if(/^<(h[1-3]|ul|ol|blockquote|div|hr)/.test(b))return b;return'<p>'+b.replace(/\n/g,'<br>')+'</p>'}).join('\n');return s}
-function copyCode(btn){const code=btn.closest('.code-block').querySelector('code').textContent;navigator.clipboard.writeText(code).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='⧉',1500)})}
-async function quickStart(text){await newConv();document.getElementById('msgInput').value=text;sendMsg()}
+function renderMd(s){
+    marked.setOptions({breaks:true,gfm:true});
+    let html = marked.parse(s);
+    html = html.replace(/<pre><code class="language-(\w*)">([\s\S]*?)<\/code><\/pre>/g, function(match, lang, code) {
+        const language = lang || 'text';
+        const decodedCode = code.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+        const lines = decodedCode.split('\n');
+        const lineNumbers = lines.map((_,i)=>i+1).join('\n');
+        return `<div class="code-block"><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" onclick="copyCode(this)">📋 <span>Copy</span></button></div><pre><code class="language-${language}"><span class="line-numbers">${lineNumbers}</span>${decodedCode}</code></pre></div>`;
+    });
+    html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, function(match, code) {
+        const decodedCode = code.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+        const lines = decodedCode.split('\n');
+        const lineNumbers = lines.map((_,i)=>i+1).join('\n');
+        return `<div class="code-block"><div class="code-header"><span class="code-lang">text</span><button class="copy-btn" onclick="copyCode(this)">📋 <span>Copy</span></button></div><pre><code><span class="line-numbers">${lineNumbers}</span>${decodedCode}</code></pre></div>`;
+    });
+    return html;
+}
+function copyCode(btn){
+    const codeBlock = btn.closest('.code-block');
+    const codeEl = codeBlock.querySelector('code');
+    const lineNumbersEl = codeEl.querySelector('.line-numbers');
+    let code = codeEl.textContent;
+    if(lineNumbersEl){
+        const lines = code.split('\n');
+        code = lines.map(line => line.replace(/^\d+\s*/, '')).join('\n');
+    }
+    navigator.clipboard.writeText(code).then(()=>{
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '✓ <span>Copied</span>';
+        setTimeout(()=>{ btn.innerHTML = originalHTML; }, 2000);
+    });
+}
+function applyHighlighting(){
+    if(typeof hljs !== 'undefined'){
+        document.querySelectorAll('.code-block pre code').forEach((block)=>{
+            const clone = block.cloneNode(true);
+            const lineNumbersEl = clone.querySelector('.line-numbers');
+            if(lineNumbersEl){ lineNumbersEl.remove(); }
+            const cleanCode = clone.textContent;
+            block.textContent = cleanCode;
+            hljs.highlightElement(block);
+        });
+    }
+}
 async function updateConvModel(){if(!currentConvId)return;const m=document.getElementById('modelSelect').value;await fetch('?api=rename',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${currentConvId}&title=${encodeURIComponent(document.getElementById('topbarTitle').textContent)}`});document.getElementById('convInfo').textContent=m}
 async function updateConvPersona(){}
 function esc(s){const d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML}
