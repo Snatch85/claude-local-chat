@@ -151,6 +151,52 @@ if (isset($_GET['api'])) {
         echo json_encode(['success' => true]);
         exit;
     }
+    if ($act === 'generate_title') {
+        $id = (int)($_POST['id'] ?? 0);
+        $first_message = trim($_POST['first_message'] ?? '');
+        if (!$id || !$first_message || !$api_key) {
+            echo json_encode(['success' => false, 'error' => 'Missing parameters']);
+            exit;
+        }
+        
+        $system_prompt = "Tu génères uniquement un titre court (4-6 mots maximum) qui résume le sujet de la conversation. Réponds uniquement avec le titre, sans guillemets, sans ponctuation finale.";
+        $messages = [
+            ['role' => 'system', 'content' => $system_prompt],
+            ['role' => 'user', 'content' => $first_message]
+        ];
+        
+        $payload = json_encode(['model' => 'mistral-small-latest', 'messages' => $messages, 'max_tokens' => 50]);
+        $ch = curl_init(API_URL);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $payload,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30
+        ]);
+        $raw = curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        
+        if ($cerr || $http >= 400) {
+            echo json_encode(['success' => false, 'error' => 'Failed to generate title']);
+            exit;
+        }
+        
+        $data = json_decode($raw, true);
+        $generated_title = trim($data['choices'][0]['message']['content'] ?? '');
+        
+        if (!$generated_title) {
+            echo json_encode(['success' => false, 'error' => 'Empty title']);
+            exit;
+        }
+        
+        $generated_title = mb_substr($generated_title, 0, 80);
+        db()->prepare("UPDATE conversations SET title=? WHERE id=?")->execute([$generated_title, $id]);
+        echo json_encode(['success' => true, 'title' => $generated_title]);
+        exit;
+    }
     if ($act === 'load') {
         $id   = (int)($_GET['id'] ?? 0);
         $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
@@ -851,13 +897,13 @@ async function sendMsg(){
                                 // Streaming complete
                                 finalizeStreamingMessage(currentStreamingMsgEl, fullContent);
                                 
-                                // Update conversation title if needed
+                                // Update conversation title if this is the first message
                                 const ci = document.getElementById('ci-' + currentConvId);
                                 if (ci) {
                                     const t = ci.querySelector('.conv-title');
                                     if (t && t.textContent === 'New conversation') {
-                                        t.textContent = msg.length > 35 ? msg.slice(0, 35) + '…' : msg;
-                                        document.getElementById('topbarTitle').textContent = t.textContent;
+                                        // Generate automatic title using Mistral API
+                                        generateConversationTitle(currentConvId, msg);
                                     }
                                     const tm = ci.querySelector('.conv-time');
                                     if (tm) tm.textContent = 'now';
@@ -940,13 +986,13 @@ async function sendMsg(){
                                 // Streaming complete
                                 finalizeStreamingMessage(currentStreamingMsgEl, fullContent);
                                 
-                                // Update conversation title if needed
+                                // Update conversation title if this is the first message
                                 const ci = document.getElementById('ci-' + currentConvId);
                                 if (ci) {
                                     const t = ci.querySelector('.conv-title');
                                     if (t && t.textContent === 'New conversation') {
-                                        t.textContent = msg.length > 35 ? msg.slice(0, 35) + '…' : msg;
-                                        document.getElementById('topbarTitle').textContent = t.textContent;
+                                        // Generate automatic title using Mistral API
+                                        generateConversationTitle(currentConvId, msg);
                                     }
                                     const tm = ci.querySelector('.conv-time');
                                     if (tm) tm.textContent = 'now';
@@ -977,7 +1023,7 @@ async function sendMsg(){
         }
     }
 }
-async function sendMultimodalMessage(text,imageBase64,imageType){const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const formData=new FormData();formData.append('conv_id',currentConvId);formData.append('text',text||'');formData.append('image_base64',imageBase64);formData.append('image_type',imageType);const r=await fetch('?api=send_multimodal',{method:'POST',body:formData});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');const titleText=text||'Image';if(t&&t.textContent==='New conversation'){t.textContent=titleText.length>35?titleText.slice(0,35)+'…':titleText;document.getElementById('topbarTitle').textContent=t.textContent}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}
+async function sendMultimodalMessage(text,imageBase64,imageType){const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const formData=new FormData();formData.append('conv_id',currentConvId);formData.append('text',text||'');formData.append('image_base64',imageBase64);formData.append('image_type',imageType);const r=await fetch('?api=send_multimodal',{method:'POST',body:formData});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');const titleText=text||'Image';if(t&&t.textContent==='New conversation'){generateConversationTitle(currentConvId,text||'Image conversation')}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}
 function appendMessage(role,content,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';const rendered=role==='user'?`<p>${esc(content).replace(/\n/g,'<br>')}</p>`:renderMd(content);div.innerHTML=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">${rendered}</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copy</button></div>`;container.appendChild(div);if(scroll)scrollBottom();if(role==='assistant')applyHighlighting()}
 function appendMessageWithImage(role,text,imageBase64,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';let html=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">`;if(text)html+=`<p>${esc(text).replace(/\n/g,'<br>')}</p>`;html+=`<img src="${imageBase64}" style="max-width:300px;border-radius:6px;border:1px solid var(--border);margin-top:.5rem">`;html+=`</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(text)}">📋 Copy</button></div>`;div.innerHTML=html;container.appendChild(div);if(scroll)scrollBottom();if(role==='assistant')applyHighlighting()}
 function appendThinking(id){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.className='msg';d.id=id;d.innerHTML=`<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text"><div class="thinking-dots"><span></span><span></span><span></span></div></div></div>`;c.appendChild(d)}
@@ -1066,6 +1112,28 @@ function applyHighlighting(){
 }
 async function updateConvModel(){if(!currentConvId)return;const m=document.getElementById('modelSelect').value;await fetch('?api=rename',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${currentConvId}&title=${encodeURIComponent(document.getElementById('topbarTitle').textContent)}`});document.getElementById('convInfo').textContent=m}
 async function updateConvPersona(){}
+async function generateConversationTitle(convId, firstMessage){
+    try{
+        const formData = new FormData();
+        formData.append('id', convId);
+        formData.append('first_message', firstMessage);
+        const r = await fetch('?api=generate_title', { method: 'POST', body: formData });
+        const d = await r.json();
+        if(d.success && d.title){
+            const ci = document.getElementById('ci-' + convId);
+            if(ci){
+                const t = ci.querySelector('.conv-title');
+                if(t){
+                    t.textContent = d.title.length > 35 ? d.title.slice(0, 35) + '…' : d.title;
+                    document.getElementById('topbarTitle').textContent = t.textContent;
+                }
+            }
+        }
+    }catch(e){
+        // If title generation fails, keep default title
+        console.log('Title generation failed:', e.message);
+    }
+}
 function esc(s){const d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML}
 function scrollBottom(){const ca=document.getElementById('chatArea');if(ca)setTimeout(()=>ca.scrollTop=ca.scrollHeight,50)}
 function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}}
