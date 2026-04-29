@@ -210,6 +210,87 @@ if (isset($_GET['api'])) {
         echo json_encode(['success' => true, 'reply' => $reply]);
         exit;
     }
+    if ($act === 'send_multimodal') {
+        $conv_id = (int)($_POST['conv_id'] ?? 0);
+        $text = trim($_POST['text'] ?? '');
+        $image_base64 = $_POST['image_base64'] ?? '';
+        $image_type = $_POST['image_type'] ?? 'image/jpeg';
+        if (!$conv_id || !$image_base64 || !$api_key) {
+            echo json_encode(['success' => false, 'error' => 'Missing parameters or API key not configured']);
+            exit;
+        }
+        $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
+        $conv->execute([$conv_id]);
+        $conv = $conv->fetch(PDO::FETCH_ASSOC);
+        if (!$conv) { echo json_encode(['success' => false, 'error' => 'Conversation not found']); exit; }
+        
+        // Build multimodal content for user message
+        $user_content = [];
+        if ($text) {
+            $user_content[] = ['type' => 'text', 'text' => $text];
+        }
+        // Extract base64 data (remove data:image/xxx;base64, prefix if present)
+        $base64_data = $image_base64;
+        if (preg_match('/^data:image\/(\w+);base64,(.+)$/', $image_base64, $matches)) {
+            $base64_data = $matches[2];
+            $image_type = 'image/' . $matches[1];
+        }
+        $user_content[] = ['type' => 'image_url', 'image_url' => ['url' => 'data:' . $image_type . ';base64,' . $base64_data]];
+        
+        // Store user message with a marker for the image
+        $user_msg_stored = $text . ($text ? "\n\n" : '') . '[Image attached]';
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $user_msg_stored]);
+        
+        $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id=?");
+        $count->execute([$conv_id]);
+        if ($count->fetchColumn() <= 1) {
+            $title = $text ? mb_substr($text, 0, 50) : 'Image conversation';
+            db()->prepare("UPDATE conversations SET title=?, updated_at=datetime('now') WHERE id=?")->execute([$title, $conv_id]);
+        } else {
+            db()->prepare("UPDATE conversations SET updated_at=datetime('now') WHERE id=?")->execute([$conv_id]);
+        }
+        
+        global $PERSONAS;
+        $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
+        $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
+        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id");
+        $history->execute([$conv_id]);
+        foreach ($history->fetchAll(PDO::FETCH_ASSOC) as $m) {
+            // For stored messages without images, use simple string content
+            if ($m['role'] === 'user' && strpos($m['content'], '[Image attached]') !== false) {
+                // Reconstruct multimodal content for previous image messages from context
+                $api_messages[] = ['role' => $m['role'], 'content' => str_replace("\n\n[Image attached]", '', $m['content'])];
+            } else {
+                $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
+            }
+        }
+        // Replace the last user message with multimodal content
+        array_pop($api_messages);
+        $api_messages[] = ['role' => 'user', 'content' => $user_content];
+        
+        // Force pixtral-large-latest model for vision
+        $model_to_use = 'pixtral-large-latest';
+        
+        $payload = json_encode(['model' => $model_to_use, 'messages' => $api_messages, 'max_tokens' => MAX_TOKENS, 'temperature' => 0.7]);
+        $ch = curl_init(API_URL);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $payload, CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 300]);
+        $raw  = curl_exec($ch);
+        $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cerr = curl_error($ch);
+        curl_close($ch);
+        if ($cerr) { echo json_encode(['success' => false, 'error' => 'Network: ' . $cerr]); exit; }
+        if ($http >= 400) {
+            $d = json_decode($raw, true);
+            echo json_encode(['success' => false, 'error' => 'API ' . $http . ': ' . ($d['message'] ?? substr($raw,0,200))]);
+            exit;
+        }
+        $data  = json_decode($raw, true);
+        $reply = trim($data['choices'][0]['message']['content'] ?? '');
+        if (!$reply) { echo json_encode(['success' => false, 'error' => 'Empty response']); exit; }
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'assistant', $reply]);
+        echo json_encode(['success' => true, 'reply' => $reply]);
+        exit;
+    }
     echo json_encode(['success' => false, 'error' => 'Unknown action']);
     exit;
 }
@@ -393,10 +474,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
   </div>
   <div class="input-zone">
     <div class="input-inner">
+      <div id="imagePreview" style="display:none;padding:.5rem .75rem;border-bottom:1px solid var(--border);gap:.5rem;flex-wrap:wrap"></div>
       <textarea id="msgInput" rows="1" placeholder="Ask anything... (Enter to send, Shift+Enter for new line)" onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCount(this)"></textarea>
       <div class="input-toolbar">
         <span class="char-count" id="charCount">0 / 8000</span>
         <span class="input-hint-txt" id="convInfo" style="display:none">Select or create a conversation</span>
+        <input type="file" id="imageInput" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none" onchange="handleImageSelect(event)">
+        <button class="send-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);width:28px;height:28px;font-size:.75rem">📎</button>
         <button class="send-btn" id="sendBtn" onclick="sendMsg()" disabled title="Send (Enter)">➤</button>
       </div>
     </div>
@@ -415,18 +499,23 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 </div>
 <script>
 const API_KEY_SET = <?= $api_key ? 'true' : 'false' ?>;
-let currentConvId = null, sending = false;
+let currentConvId = null, sending = false, selectedImageBase64 = null, selectedImageType = null;
 function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open')}
 function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='📋 Copy',1500)})}
 function updateCharCount(el){const l=el.value.length,m=8000,c=document.getElementById('charCount');if(!c)return;c.textContent=l+' / '+m;c.className='char-count'+(l>m?' over':l>m*.8?' warn':'')}
 function showKeyPopup(){document.getElementById('keyPopup').style.display='flex'}
 function hideKeyPopup(){document.getElementById('keyPopup').style.display='none'}
+function handleImageSelect(event){const file=event.target.files[0];if(!file)return;const validTypes=['image/jpeg','image/png','image/gif','image/webp'];if(!validTypes.includes(file.type)){alert('Please select a valid image (jpg, png, gif, webp)');return;}const reader=new FileReader();reader.onload=function(e){selectedImageBase64=e.target.result;selectedImageType=file.type;showImagePreview()};reader.readAsDataURL(file)}
+function showImagePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style=\"position:relative\"><img src=\"${selectedImageBase64}\" style=\"height:60px;border-radius:4px;border:1px solid var(--border)\"><button onclick=\"clearImage()\" style=\"position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center\">×</button></div>`}
+function clearImage(){selectedImageBase64=null;selectedImageType=null;document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML='';document.getElementById('imageInput').value=''}
 async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d=await r.json();if(d.success){addConvToSidebar(d.id,'New conversation');await loadConv(d.id)}}
 function addConvToSidebar(id,title){const l=document.getElementById('convList'),e=l.querySelector('[style]');if(e)e.remove();const el=document.createElement('div');el.className='conv-item';el.id='ci-'+id;el.onclick=()=>loadConv(id);el.innerHTML=`<span class="conv-icon">◇</span><span class="conv-title">${esc(title)}</span><span class="conv-time">now</span><button class="conv-del" onclick="event.stopPropagation();delConv(${id})">×</button>`;l.prepend(el)}
 async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages)appendMessage(m.role,m.content,false);document.getElementById('convInfo').textContent=d.conv.model;document.getElementById('sendBtn').disabled=!API_KEY_SET;document.getElementById('msgInput').focus();scrollBottom()}
 async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id){currentConvId=null;document.getElementById('chatScreen').style.display='none';document.getElementById('welcomeScreen').style.display='flex';document.getElementById('topbarTitle').textContent='Claude Code';document.getElementById('sendBtn').disabled=true}}
-async function sendMsg(){if(sending||!currentConvId)return;const input=document.getElementById('msgInput'),msg=input.value.trim();if(!msg)return;sending=true;input.value='';input.style.height='auto';updateCharCount(input);document.getElementById('sendBtn').disabled=true;appendMessage('user',msg);const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const r=await fetch('?api=send',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`conv_id=${currentConvId}&content=${encodeURIComponent(msg)}`});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');if(t&&t.textContent==='New conversation'){t.textContent=msg.length>35?msg.slice(0,35)+'…':msg;document.getElementById('topbarTitle').textContent=t.textContent}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}sending=false;document.getElementById('sendBtn').disabled=!API_KEY_SET;scrollBottom()}
+async function sendMsg(){if(sending||!currentConvId)return;const input=document.getElementById('msgInput'),msg=input.value.trim();if(!msg&&!selectedImageBase64)return;sending=true;input.value='';input.style.height='auto';updateCharCount(input);document.getElementById('sendBtn').disabled=true;const hasImage=!!selectedImageBase64;if(hasImage){appendMessageWithImage('user',msg,selectedImageBase64);const imageData=selectedImageBase64;const imageType=selectedImageType;clearImage();await sendMultimodalMessage(msg,imageData,imageType)}else{appendMessage('user',msg);const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const r=await fetch('?api=send',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`conv_id=${currentConvId}&content=${encodeURIComponent(msg)}`});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');if(t&&t.textContent==='New conversation'){t.textContent=msg.length>35?msg.slice(0,35)+'…':msg;document.getElementById('topbarTitle').textContent=t.textContent}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}sending=false;document.getElementById('sendBtn').disabled=!API_KEY_SET;scrollBottom()}
+async function sendMultimodalMessage(text,imageBase64,imageType){const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const formData=new FormData();formData.append('conv_id',currentConvId);formData.append('text',text||'');formData.append('image_base64',imageBase64);formData.append('image_type',imageType);const r=await fetch('?api=send_multimodal',{method:'POST',body:formData});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');const titleText=text||'Image';if(t&&t.textContent==='New conversation'){t.textContent=titleText.length>35?titleText.slice(0,35)+'…':titleText;document.getElementById('topbarTitle').textContent=t.textContent}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}
 function appendMessage(role,content,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';const rendered=role==='user'?`<p>${esc(content).replace(/\n/g,'<br>')}</p>`:renderMd(content);div.innerHTML=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">${rendered}</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copy</button></div>`;container.appendChild(div);if(scroll)scrollBottom()}
+function appendMessageWithImage(role,text,imageBase64,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';let html=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">`;if(text)html+=`<p>${esc(text).replace(/\n/g,'<br>')}</p>`;html+=`<img src="${imageBase64}" style="max-width:300px;border-radius:6px;border:1px solid var(--border);margin-top:.5rem">`;html+=`</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(text)}">📋 Copy</button></div>`;div.innerHTML=html;container.appendChild(div);if(scroll)scrollBottom()}
 function appendThinking(id){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.className='msg';d.id=id;d.innerHTML=`<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text"><div class="thinking-dots"><span></span><span></span><span></span></div></div></div>`;c.appendChild(d)}
 function removeThinking(id){const el=document.getElementById(id);if(el)el.remove()}
 function appendError(msg){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.style.cssText='max-width:800px;margin:0 auto;padding:.5rem 1rem';d.innerHTML=`<div style="background:#2a1a1a;border:1px solid #ef4444;border-radius:6px;padding:.6rem .8rem;color:#ef4444;font-size:.7rem">✗ ${esc(msg)}</div>`;c.appendChild(d)}
