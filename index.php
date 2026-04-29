@@ -185,9 +185,42 @@ if (isset($_GET['api'])) {
         global $PERSONAS;
         $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
         $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
-        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id");
+        
+        // Récupérer les 10 derniers messages pour la mémoire contextuelle
+        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
         $history->execute([$conv_id]);
-        foreach ($history->fetchAll(PDO::FETCH_ASSOC) as $m) {
+        $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Inverser pour avoir l'ordre chronologique et assurer l'alternance user/assistant
+        $msgs = array_reverse($msgs);
+        
+        // Filtrer pour garder une alternance correcte user/assistant en partant du plus ancien
+        $filtered_msgs = [];
+        $expected_role = 'user';
+        foreach ($msgs as $m) {
+            if ($m['role'] === $expected_role) {
+                $filtered_msgs[] = $m;
+                $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+            }
+        }
+        
+        // Si le premier message n'est pas 'user', on vérifie si on commence par 'assistant'
+        if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
+            $filtered_msgs = [];
+            $expected_role = 'assistant';
+            foreach ($msgs as $m) {
+                if ($m['role'] === $expected_role) {
+                    $filtered_msgs[] = $m;
+                    $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+                }
+            }
+            // Réinverser pour commencer par user si possible
+            if (!empty($filtered_msgs) && $filtered_msgs[0]['role'] === 'assistant') {
+                array_shift($filtered_msgs);
+            }
+        }
+        
+        foreach ($filtered_msgs as $m) {
             $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
         }
         $payload = json_encode(['model' => $conv['model'], 'messages' => $api_messages, 'max_tokens' => MAX_TOKENS, 'temperature' => 0.7]);
@@ -253,12 +286,44 @@ if (isset($_GET['api'])) {
         global $PERSONAS;
         $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
         $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
-        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id");
+        
+        // Récupérer les 10 derniers messages pour la mémoire contextuelle
+        $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
         $history->execute([$conv_id]);
-        foreach ($history->fetchAll(PDO::FETCH_ASSOC) as $m) {
+        $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Inverser pour avoir l'ordre chronologique et assurer l'alternance user/assistant
+        $msgs = array_reverse($msgs);
+        
+        // Filtrer pour garder une alternance correcte user/assistant en partant du plus ancien
+        $filtered_msgs = [];
+        $expected_role = 'user';
+        foreach ($msgs as $m) {
+            if ($m['role'] === $expected_role) {
+                $filtered_msgs[] = $m;
+                $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+            }
+        }
+        
+        // Si le premier message n'est pas 'user', on vérifie si on commence par 'assistant'
+        if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
+            $filtered_msgs = [];
+            $expected_role = 'assistant';
+            foreach ($msgs as $m) {
+                if ($m['role'] === $expected_role) {
+                    $filtered_msgs[] = $m;
+                    $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
+                }
+            }
+            // Réinverser pour commencer par user si possible
+            if (!empty($filtered_msgs) && $filtered_msgs[0]['role'] === 'assistant') {
+                array_shift($filtered_msgs);
+            }
+        }
+        
+        foreach ($filtered_msgs as $m) {
             // For stored messages without images, use simple string content
             if ($m['role'] === 'user' && strpos($m['content'], '[Image attached]') !== false) {
-                // Reconstruct multimodal content for previous image messages from context
                 $api_messages[] = ['role' => $m['role'], 'content' => str_replace("\n\n[Image attached]", '', $m['content'])];
             } else {
                 $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
