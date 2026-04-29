@@ -1,4 +1,3 @@
-/* ClaudeLocal — JavaScript v1.0.9 */
 const API_KEY_SET = window._API_KEY_SET || false;
 let currentConvId = null;
 let sending = false;
@@ -12,7 +11,7 @@ let attachedImage = null; // { b64, mime, name }
 function handleImageSelect(input) {
     const file = input.files[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { alert('Image trop grande (max 5 MB)'); return; }
+    if (file.size > 5 * 1024 * 1024) { showNotification('Image trop grande (max 5 MB)', 'error'); return; }
     const reader = new FileReader();
     reader.onload = e => {
         const dataUrl = e.target.result;
@@ -37,7 +36,7 @@ function removeImage() {
 function captureScreen() {
     const zone = document.getElementById('chatArea');
     if (!zone || zone.style.display === 'none') {
-        alert('Ouvre une conversation avant de capturer !');
+        showNotification('Ouvre une conversation avant de capturer !', 'error');
         return;
     }
     const btn = document.querySelector('[onclick="captureScreen()"]');
@@ -60,7 +59,7 @@ function captureScreen() {
         if (btn) { btn.textContent = '✅'; btn.disabled = false; setTimeout(() => btn.textContent = '📸', 2000); }
     }).catch(err => {
         console.error(err);
-        alert('Erreur capture : ' + err.message);
+        showNotification('Erreur capture : ' + err.message, 'error');
         if (btn) { btn.textContent = '📸'; btn.disabled = false; }
     });
 }
@@ -129,6 +128,13 @@ function toggleSidebar() {
 function toggleFocusMode() {
     document.body.classList.toggle('focus-mode');
     isFocusMode = document.body.classList.contains('focus-mode');
+    if (isFocusMode) {
+        lastScrollPosition = window.scrollY;
+        document.body.style.overflow = 'hidden';
+    } else {
+        document.body.style.overflow = '';
+        window.scrollTo(0, lastScrollPosition);
+    }
 }
 
 // ── Copier message ───────────────────────────────────────────────────────────
@@ -157,9 +163,37 @@ function updateCharCount(el) {
     cc.className   = 'char-count' + (len > max ? ' over' : len > max * 0.8 ? ' warn' : '');
 }
 
+// ── Notifications ────────────────────────────────────────────────────────────
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = `
+        <div class="notification-content">
+            <span class="notification-icon">${type === 'error' ? '❌' : 'ℹ️'}</span>
+            <span class="notification-message">${message}</span>
+        </div>
+        <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+    `;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        notification.classList.add('show');
+    }, 10);
+
+    setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => notification.remove(), 300);
+    }, 5000);
+}
+
 // ── Popup clé API ────────────────────────────────────────────────────────────
-function showKeyPopup() { document.getElementById('keyPopup').style.display='flex'; }
-function hideKeyPopup() { document.getElementById('keyPopup').style.display='none'; }
+function showKeyPopup() {
+    document.getElementById('keyPopup').style.display='flex';
+    document.getElementById('apiKeyInput').focus();
+}
+function hideKeyPopup() {
+    document.getElementById('keyPopup').style.display='none';
+}
 
 // ── Nouvelle conversation ────────────────────────────────────────────────────
 async function newConv() {
@@ -246,7 +280,7 @@ async function sendMsg() {
     if (sending || !currentConvId) return;
     const input = document.getElementById('msgInput');
     const msg = input.value.trim();
-    if (!msg) return;
+    if (!msg && !attachedImage) return;
 
     sending = true;
     const imgSnapshot = attachedImage;
@@ -256,7 +290,7 @@ async function sendMsg() {
     document.getElementById('sendBtn').disabled = true;
     if (attachedImage) removeImage();
 
-    appendMessage('user', msg);
+    if (msg) appendMessage('user', msg);
 
     const thinkId = 'think-' + Date.now();
     appendThinking(thinkId);
@@ -265,7 +299,7 @@ async function sendMsg() {
     try {
         const fd = new FormData();
         fd.append('conv_id', currentConvId);
-        fd.append('content', msg);
+        if (msg) fd.append('content', msg);
         if (imgSnapshot) {
             fd.append('image_b64',  imgSnapshot.b64);
             fd.append('image_mime', imgSnapshot.mime);
@@ -361,7 +395,10 @@ function appendMessage(role, content, scroll=true) {
         ${role === 'assistant' ? '<button class="msg-copy-btn" onclick="regenerate()" style="margin-left:.5rem">🔄 Régénérer</button>' : ''}
       </div>`;
     container.appendChild(div);
-    if (scroll) scrollBottom();
+
+    if (scroll) {
+        scrollBottom();
+    }
 }
 
 function appendThinking(id) {
@@ -460,12 +497,24 @@ function handleKey(e) {
     if (e.ctrlKey && e.key === 'n') {
         e.preventDefault();
         newConv();
-    } else if (e.ctrlKey && e.key === '/') {
+    } else if (e.ctrlKey && e.key === 'k') {
         e.preventDefault();
         document.getElementById('msgInput').focus();
+    } else if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        captureScreen();
+    } else if (e.ctrlKey && e.key === 'f') {
+        e.preventDefault();
+        toggleFocusMode();
+    } else if (e.ctrlKey && e.key === 'd') {
+        e.preventDefault();
+        toggleDarkMode();
     } else if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMsg();
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        document.getElementById('msgInput').blur();
     }
 }
 
@@ -483,4 +532,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const id = parseInt(firstConv.id.replace('ci-',''));
         if (id) loadConv(id);
     }
+
+    // Ajout d'un événement pour détecter les changements de taille de fenêtre
+    window.addEventListener('resize', () => {
+        if (isFocusMode) {
+            document.body.style.overflow = 'hidden';
+        }
+    });
 });
