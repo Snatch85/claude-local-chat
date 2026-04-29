@@ -366,7 +366,10 @@ if (isset($_GET['api'])) {
         
         $conv_id = (int)($_POST['conv_id'] ?? 0);
         $content = trim($_POST['content'] ?? '');
-        if (!$conv_id || !$content || !$api_key) {
+        $file_content = $_POST['file_content'] ?? '';
+        $file_name = $_POST['file_name'] ?? '';
+        
+        if (!$conv_id || (!$content && !$file_content) || !$api_key) {
             echo "data: " . json_encode(['error' => 'Missing parameters or API key not configured']) . "\n\n";
             exit;
         }
@@ -379,8 +382,14 @@ if (isset($_GET['api'])) {
             exit;
         }
         
+        // Build user message content
+        $user_msg_content = $content;
+        if ($file_content !== '') {
+            $user_msg_content = "📄 {$file_name}\n\n{$content}";
+        }
+        
         // Save user message
-        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $content]);
+        db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $user_msg_content]);
         
         $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id=?");
         $count->execute([$conv_id]);
@@ -393,7 +402,14 @@ if (isset($_GET['api'])) {
         
         global $PERSONAS;
         $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
-        $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
+        $system_prompt = $persona['prompt'];
+        
+        // Add file content to system message if present
+        if ($file_content !== '') {
+            $system_prompt .= "\n\nVoici le fichier {$file_name} :\n\n" . $file_content;
+        }
+        
+        $api_messages = [['role' => 'system', 'content' => $system_prompt]];
         
         // Get last 10 messages for context
         $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
@@ -687,6 +703,8 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
         <span class="input-hint-txt" id="convInfo" style="display:none">Select or create a conversation</span>
         <input type="file" id="imageInput" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none" onchange="handleImageSelect(event)">
         <button class="send-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);width:28px;height:28px;font-size:.75rem">📎</button>
+        <input type="file" id="fileInput" accept=".php,.js,.ts,.py,.html,.css,.txt,.csv,.json,.md,.sql" style="display:none" onchange="handleFileSelect(event)">
+        <button class="send-btn" id="fileAttachBtn" onclick="document.getElementById('fileInput').click()" title="Attach file" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);width:28px;height:28px;font-size:.75rem">📄</button>
         <button class="send-btn" id="sendBtn" onclick="sendMsg()" disabled title="Send (Enter)">➤</button>
       </div>
     </div>
@@ -705,7 +723,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 </div>
 <script>
 const API_KEY_SET = <?= $api_key ? 'true' : 'false' ?>;
-let currentConvId = null, sending = false, selectedImageBase64 = null, selectedImageType = null, abortController = null, currentStreamingMsgEl = null;
+let currentConvId = null, sending = false, selectedImageBase64 = null, selectedImageType = null, selectedFileContent = null, selectedFileName = null, abortController = null, currentStreamingMsgEl = null;
 
 function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open')}
 function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='📋 Copy',1500)})}
@@ -715,6 +733,9 @@ function hideKeyPopup(){document.getElementById('keyPopup').style.display='none'
 function handleImageSelect(event){const file=event.target.files[0];if(!file)return;const validTypes=['image/jpeg','image/png','image/gif','image/webp'];if(!validTypes.includes(file.type)){alert('Please select a valid image (jpg, png, gif, webp)');return;}const reader=new FileReader();reader.onload=function(e){selectedImageBase64=e.target.result;selectedImageType=file.type;showImagePreview()};reader.readAsDataURL(file)}
 function showImagePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style=\"position:relative\"><img src=\"${selectedImageBase64}\" style=\"height:60px;border-radius:4px;border:1px solid var(--border)\"><button onclick=\"clearImage()\" style=\"position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center\">×</button></div>`}
 function clearImage(){selectedImageBase64=null;selectedImageType=null;document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML='';document.getElementById('imageInput').value=''}
+function handleFileSelect(event){const file=event.target.files[0];if(!file)return;const validExts=['.php','.js','.ts','.py','.html','.css','.txt','.csv','.json','.md','.sql'];const ext='.'+file.name.split('.').pop().toLowerCase();if(!validExts.includes(ext)){alert('Please select a valid file type (.php, .js, .ts, .py, .html, .css, .txt, .csv, .json, .md, .sql)');return;}if(file.size>512000){alert('File size exceeds 500KB limit');return;}const reader=new FileReader();reader.onload=function(e){selectedFileContent=e.target.result;selectedFileName=file.name;showFilePreview()};reader.readAsText(file)}
+function showFilePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style="display:flex;align-items:center;gap:.5rem;background:var(--surface);padding:.3rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;max-width:200px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 ${esc(selectedFileName)}</span><button onclick="clearFile()" style="background:#ef4444;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button></div>`}
+function clearFile(){selectedFileContent=null;selectedFileName=null;document.getElementById('fileInput').value='';document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML=''}
 async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d=await r.json();if(d.success){addConvToSidebar(d.id,'New conversation');await loadConv(d.id)}}
 function addConvToSidebar(id,title){const l=document.getElementById('convList'),e=l.querySelector('[style]');if(e)e.remove();const el=document.createElement('div');el.className='conv-item';el.id='ci-'+id;el.onclick=()=>loadConv(id);el.innerHTML=`<span class="conv-icon">◇</span><span class="conv-title">${esc(title)}</span><span class="conv-time">now</span><button class="conv-del" onclick="event.stopPropagation();delConv(${id})">×</button>`;l.prepend(el)}
 async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages)appendMessage(m.role,m.content,false);document.getElementById('convInfo').textContent=d.conv.model;updateSendButtonState();document.getElementById('msgInput').focus();scrollBottom()}
@@ -748,7 +769,7 @@ async function stopStreaming(){
 async function sendMsg(){
     if(sending||!currentConvId)return;
     const input=document.getElementById('msgInput'),msg=input.value.trim();
-    if(!msg&&!selectedImageBase64)return;
+    if(!msg&&!selectedImageBase64&&!selectedFileContent)return;
     
     // Check if we should stop streaming instead
     if(sending && abortController){
@@ -763,12 +784,108 @@ async function sendMsg(){
     updateSendButtonState();
     
     const hasImage=!!selectedImageBase64;
+    const hasFile=!!selectedFileContent;
+    
     if(hasImage){
         appendMessageWithImage('user',msg,selectedImageBase64);
         const imageData=selectedImageBase64;
         const imageType=selectedImageType;
         clearImage();
         await sendMultimodalMessage(msg,imageData,imageType);
+    }else if(hasFile){
+        const fileName=selectedFileName;
+        const fileContent=selectedFileContent;
+        clearFile();
+        appendMessage('user',`📄 ${fileName}\n\n${msg}`);
+        const msgId = 'msg-' + Date.now();
+        currentStreamingMsgEl = appendStreamingMessage(msgId);
+        scrollBottom();
+        
+        abortController = new AbortController();
+        const signal = abortController.signal;
+        
+        try{
+            const formData = new FormData();
+            formData.append('conv_id', currentConvId);
+            formData.append('content', msg);
+            formData.append('file_content', fileContent);
+            formData.append('file_name', fileName);
+            
+            const response = await fetch('?api=stream_message', {
+                method: 'POST',
+                body: formData,
+                signal: signal
+            });
+            
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullContent = '';
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.slice(6);
+                        if (jsonStr === '[DONE]') continue;
+                        
+                        try {
+                            const data = JSON.parse(jsonStr);
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                            if (data.content) {
+                                fullContent += data.content;
+                                updateStreamingMessage(currentStreamingMsgEl, fullContent);
+                                scrollBottom();
+                            }
+                            if (data.done) {
+                                // Streaming complete
+                                finalizeStreamingMessage(currentStreamingMsgEl, fullContent);
+                                
+                                // Update conversation title if needed
+                                const ci = document.getElementById('ci-' + currentConvId);
+                                if (ci) {
+                                    const t = ci.querySelector('.conv-title');
+                                    if (t && t.textContent === 'New conversation') {
+                                        t.textContent = msg.length > 35 ? msg.slice(0, 35) + '…' : msg;
+                                        document.getElementById('topbarTitle').textContent = t.textContent;
+                                    }
+                                    const tm = ci.querySelector('.conv-time');
+                                    if (tm) tm.textContent = 'now';
+                                }
+                            }
+                        } catch (e) {
+                            if (!(e instanceof SyntaxError)) throw e;
+                        }
+                    }
+                }
+            }
+        } catch(e){
+            if(e.name === 'AbortError'){
+                // User stopped streaming
+                if(currentStreamingMsgEl){
+                    finalizeStreamingMessage(currentStreamingMsgEl, currentStreamingMsgEl.dataset.content || '');
+                }
+            } else {
+                removeThinking(currentStreamingMsgEl?.id);
+                appendError('Network error: ' + e.message);
+            }
+        } finally {
+            abortController = null;
+            sending = false;
+            currentStreamingMsgEl = null;
+            updateSendButtonState();
+            scrollBottom();
+        }
     }else{
         appendMessage('user',msg);
         const msgId = 'msg-' + Date.now();
