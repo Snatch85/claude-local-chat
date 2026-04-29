@@ -737,8 +737,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
       <div class="suggestion" onclick="quickStart('Write a Python script to parse JSON and export to CSV')">⟐ Python JSON to CSV</div>
     </div>
   </div>
-  <div id="chatScreen" style="display:none;flex:1;overflow:hidden;flex-direction:column">
+  <div id="chatScreen" style="display:none;flex:1;overflow:hidden;flex-direction:column;position:relative">
     <div class="chat-area" id="chatArea"><div class="msg-group" id="msgContainer"></div></div>
+    <div id="dragOverlay" style="display:none;position:absolute;inset:0;background:rgba(38,38,38,.85);border:2px dashed var(--accent);border-radius:8px;margin:1rem;z-index:100;align-items:center;justify-content:center;pointer-events:none"><div style="text-align:center;color:var(--text);font-size:.9rem;font-family:var(--font)"><div style="font-size:2rem;margin-bottom:.5rem">🖼️</div>Déposer l'image ici</div></div>
   </div>
   <div class="input-zone">
     <div class="input-inner">
@@ -770,6 +771,71 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 <script>
 const API_KEY_SET = <?= $api_key ? 'true' : 'false' ?>;
 let currentConvId = null, sending = false, selectedImageBase64 = null, selectedImageType = null, selectedFileContent = null, selectedFileName = null, abortController = null, currentStreamingMsgEl = null;
+
+// Drag and drop image handling
+function setupDragAndDrop(){
+    const chatScreen = document.getElementById('chatScreen');
+    const dragOverlay = document.getElementById('dragOverlay');
+    
+    chatScreen.addEventListener('dragover', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.types.includes('Files')) {
+            dragOverlay.style.display = 'flex';
+        }
+    });
+    
+    chatScreen.addEventListener('dragleave', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.target === chatScreen || e.target === document.getElementById('chatArea') || e.target === document.getElementById('msgContainer')) {
+            dragOverlay.style.display = 'none';
+        }
+    });
+    
+    chatScreen.addEventListener('drop', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        dragOverlay.style.display = 'none';
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleImageFile(files[0]);
+        }
+    });
+}
+
+// Handle image file (from drag-drop or paste)
+function handleImageFile(file){
+    if (!file) return;
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validTypes.includes(file.type)) {
+        alert('Format non supporté. Veuillez utiliser jpg, png, gif ou webp.');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(e){
+        selectedImageBase64 = e.target.result;
+        selectedImageType = file.type;
+        showImagePreview();
+    };
+    reader.readAsDataURL(file);
+}
+
+// Paste handler for images from clipboard
+function setupPasteHandler(){
+    const msgInput = document.getElementById('msgInput');
+    msgInput.addEventListener('paste', function(e){
+        const items = e.clipboardData.items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].type.indexOf('image') !== -1) {
+                const file = items[i].getAsFile();
+                handleImageFile(file);
+                break;
+            }
+        }
+    });
+}
 
 function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open')}
 function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='📋 Copy',1500)})}
@@ -1138,7 +1204,13 @@ function esc(s){const d=document.createElement('div');d.textContent=String(s||''
 function scrollBottom(){const ca=document.getElementById('chatArea');if(ca)setTimeout(()=>ca.scrollTop=ca.scrollHeight,50)}
 function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}}
 function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,180)+'px'}
-document.addEventListener('DOMContentLoaded',()=>{document.getElementById('msgInput').focus();const fc=document.querySelector('.conv-item');if(fc){const id=parseInt(fc.id.replace('ci-',''));if(id)loadConv(id)}});
+document.addEventListener('DOMContentLoaded',()=>{
+    document.getElementById('msgInput').focus();
+    const fc=document.querySelector('.conv-item');
+    if(fc){const id=parseInt(fc.id.replace('ci-',''));if(id)loadConv(id)}
+    setupDragAndDrop();
+    setupPasteHandler();
+});
 </script>
 </body>
 </html>
