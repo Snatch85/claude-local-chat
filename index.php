@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.0');
+define('VERSION',      '2.0.1');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -92,8 +92,8 @@ function md(string $s): string {
     $s = preg_replace('/^&gt; (.+)$/m', '<blockquote>$1</blockquote>', $s);
     $s = preg_replace('/^[-*•] (.+)$/m', '<li>$1</li>', $s);
     $s = preg_replace('/(<li>[\s\S]*?<\/li>\n?)+/', '<ul>$0</ul>', $s);
-    $s = preg_replace('/^\d+\. (.+)$/m', '<oli>$1</oli>', $s);
-    $s = preg_replace('/(<oli>[\s\S]*?<\/oli>\n?)+/', '<ol>$0</ol>', $s);
+    $s = preg_replace('/^\d+\. (.+)$/m', '<li>$1</li>', $s);
+    $s = preg_replace('/(<li>[\s\S]*?<\/li>\n?)+/', '<ol>$0</ol>', $s);
     $s = str_replace(['<oli>', '</oli>'], ['<li>', '</li>'], $s);
     $s = preg_replace('/^---$/m', '<hr>', $s);
     $s = preg_replace_callback('/(\|.+\|\n)+/', function($m) {
@@ -144,6 +144,12 @@ if (isset($_GET['api'])) {
         echo json_encode(['success' => true]);
         exit;
     }
+    if ($act === 'clear_conv') {
+        $id = (int)($_POST['id'] ?? 0);
+        db()->prepare("DELETE FROM messages WHERE conversation_id=?")->execute([$id]);
+        echo json_encode(['success' => true]);
+        exit;
+    }
     if ($act === 'rename') {
         $id    = (int)($_POST['id'] ?? 0);
         $title = substr(trim($_POST['title'] ?? ''), 0, 80);
@@ -158,13 +164,13 @@ if (isset($_GET['api'])) {
             echo json_encode(['success' => false, 'error' => 'Missing parameters']);
             exit;
         }
-        
+
         $system_prompt = "Tu génères uniquement un titre court (4-6 mots maximum) qui résume le sujet de la conversation. Réponds uniquement avec le titre, sans guillemets, sans ponctuation finale.";
         $messages = [
             ['role' => 'system', 'content' => $system_prompt],
             ['role' => 'user', 'content' => $first_message]
         ];
-        
+
         $payload = json_encode(['model' => 'mistral-small-latest', 'messages' => $messages, 'max_tokens' => 50]);
         $ch = curl_init(API_URL);
         curl_setopt_array($ch, [
@@ -178,20 +184,20 @@ if (isset($_GET['api'])) {
         $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $cerr = curl_error($ch);
         curl_close($ch);
-        
+
         if ($cerr || $http >= 400) {
             echo json_encode(['success' => false, 'error' => 'Failed to generate title']);
             exit;
         }
-        
+
         $data = json_decode($raw, true);
         $generated_title = trim($data['choices'][0]['message']['content'] ?? '');
-        
+
         if (!$generated_title) {
             echo json_encode(['success' => false, 'error' => 'Empty title']);
             exit;
         }
-        
+
         $generated_title = mb_substr($generated_title, 0, 80);
         db()->prepare("UPDATE conversations SET title=? WHERE id=?")->execute([$generated_title, $id]);
         echo json_encode(['success' => true, 'title' => $generated_title]);
@@ -231,15 +237,15 @@ if (isset($_GET['api'])) {
         global $PERSONAS;
         $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
         $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
-        
+
         // Récupérer les 10 derniers messages pour la mémoire contextuelle
         $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
         $history->execute([$conv_id]);
         $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
-        
+
         // Inverser pour avoir l'ordre chronologique et assurer l'alternance user/assistant
         $msgs = array_reverse($msgs);
-        
+
         // Filtrer pour garder une alternance correcte user/assistant en partant du plus ancien
         $filtered_msgs = [];
         $expected_role = 'user';
@@ -249,7 +255,7 @@ if (isset($_GET['api'])) {
                 $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
             }
         }
-        
+
         // Si le premier message n'est pas 'user', on vérifie si on commence par 'assistant'
         if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
             $filtered_msgs = [];
@@ -265,7 +271,7 @@ if (isset($_GET['api'])) {
                 array_shift($filtered_msgs);
             }
         }
-        
+
         foreach ($filtered_msgs as $m) {
             $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
         }
@@ -302,7 +308,7 @@ if (isset($_GET['api'])) {
         $conv->execute([$conv_id]);
         $conv = $conv->fetch(PDO::FETCH_ASSOC);
         if (!$conv) { echo json_encode(['success' => false, 'error' => 'Conversation not found']); exit; }
-        
+
         // Build multimodal content for user message
         $user_content = [];
         if ($text) {
@@ -315,11 +321,11 @@ if (isset($_GET['api'])) {
             $image_type = 'image/' . $matches[1];
         }
         $user_content[] = ['type' => 'image_url', 'image_url' => ['url' => 'data:' . $image_type . ';base64,' . $base64_data]];
-        
+
         // Store user message with a marker for the image
-        $user_msg_stored = $text . ($text ? "\n\n" : '') . '[Image attached]';
+        $user_msg_stored = $text ? $text . "\n\n[Image attached]" : "[Image attached]";
         db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $user_msg_stored]);
-        
+
         $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id=?");
         $count->execute([$conv_id]);
         if ($count->fetchColumn() <= 1) {
@@ -328,19 +334,19 @@ if (isset($_GET['api'])) {
         } else {
             db()->prepare("UPDATE conversations SET updated_at=datetime('now') WHERE id=?")->execute([$conv_id]);
         }
-        
+
         global $PERSONAS;
         $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
         $api_messages = [['role' => 'system', 'content' => $persona['prompt']]];
-        
+
         // Récupérer les 10 derniers messages pour la mémoire contextuelle
         $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
         $history->execute([$conv_id]);
         $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
-        
+
         // Inverser pour avoir l'ordre chronologique et assurer l'alternance user/assistant
         $msgs = array_reverse($msgs);
-        
+
         // Filtrer pour garder une alternance correcte user/assistant en partant du plus ancien
         $filtered_msgs = [];
         $expected_role = 'user';
@@ -350,7 +356,7 @@ if (isset($_GET['api'])) {
                 $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
             }
         }
-        
+
         // Si le premier message n'est pas 'user', on vérifie si on commence par 'assistant'
         if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
             $filtered_msgs = [];
@@ -366,11 +372,13 @@ if (isset($_GET['api'])) {
                 array_shift($filtered_msgs);
             }
         }
-        
+
         foreach ($filtered_msgs as $m) {
             // For stored messages without images, use simple string content
             if ($m['role'] === 'user' && strpos($m['content'], '[Image attached]') !== false) {
-                $api_messages[] = ['role' => $m['role'], 'content' => str_replace("\n\n[Image attached]", '', $m['content'])];
+                $clean_content = str_replace("\n\n[Image attached]", '', $m['content']);
+                $clean_content = str_replace("[Image attached]", '', $clean_content);
+                $api_messages[] = ['role' => $m['role'], 'content' => trim($clean_content)];
             } else {
                 $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
             }
@@ -378,10 +386,10 @@ if (isset($_GET['api'])) {
         // Replace the last user message with multimodal content
         array_pop($api_messages);
         $api_messages[] = ['role' => 'user', 'content' => $user_content];
-        
+
         // Force pixtral-large-latest model for vision
         $model_to_use = 'pixtral-large-latest';
-        
+
         $payload = json_encode(['model' => $model_to_use, 'messages' => $api_messages, 'max_tokens' => MAX_TOKENS, 'temperature' => 0.7]);
         $ch = curl_init(API_URL);
         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $payload, CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $api_key], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 300]);
@@ -402,24 +410,24 @@ if (isset($_GET['api'])) {
         echo json_encode(['success' => true, 'reply' => $reply]);
         exit;
     }
-    
+
     // Streaming endpoint for Mistral API
     if ($act === 'stream_message') {
         header('Content-Type: text/event-stream');
         header('Cache-Control: no-cache');
         header('X-Accel-Buffering: no');
         ob_implicit_flush(true);
-        
+
         $conv_id = (int)($_POST['conv_id'] ?? 0);
         $content = trim($_POST['content'] ?? '');
         $file_content = $_POST['file_content'] ?? '';
         $file_name = $_POST['file_name'] ?? '';
-        
+
         if (!$conv_id || (!$content && !$file_content) || !$api_key) {
             echo "data: " . json_encode(['error' => 'Missing parameters or API key not configured']) . "\n\n";
             exit;
         }
-        
+
         $conv = db()->prepare("SELECT * FROM conversations WHERE id=?");
         $conv->execute([$conv_id]);
         $conv = $conv->fetch(PDO::FETCH_ASSOC);
@@ -427,16 +435,16 @@ if (isset($_GET['api'])) {
             echo "data: " . json_encode(['error' => 'Conversation not found']) . "\n\n";
             exit;
         }
-        
+
         // Build user message content
         $user_msg_content = $content;
         if ($file_content !== '') {
             $user_msg_content = "📄 {$file_name}\n\n{$content}";
         }
-        
+
         // Save user message
         db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'user', $user_msg_content]);
-        
+
         $count = db()->prepare("SELECT COUNT(*) FROM messages WHERE conversation_id=?");
         $count->execute([$conv_id]);
         if ($count->fetchColumn() <= 1) {
@@ -445,24 +453,24 @@ if (isset($_GET['api'])) {
         } else {
             db()->prepare("UPDATE conversations SET updated_at=datetime('now') WHERE id=?")->execute([$conv_id]);
         }
-        
+
         global $PERSONAS;
         $persona     = $PERSONAS[$conv['persona']] ?? $PERSONAS['assistant'];
         $system_prompt = $persona['prompt'];
-        
+
         // Add file content to system message if present
         if ($file_content !== '') {
             $system_prompt .= "\n\nVoici le fichier {$file_name} :\n\n" . $file_content;
         }
-        
+
         $api_messages = [['role' => 'system', 'content' => $system_prompt]];
-        
+
         // Get last 10 messages for context
         $history = db()->prepare("SELECT role, content FROM messages WHERE conversation_id=? ORDER BY id DESC LIMIT 10");
         $history->execute([$conv_id]);
         $msgs = $history->fetchAll(PDO::FETCH_ASSOC);
         $msgs = array_reverse($msgs);
-        
+
         // Filter for proper user/assistant alternation
         $filtered_msgs = [];
         $expected_role = 'user';
@@ -472,7 +480,7 @@ if (isset($_GET['api'])) {
                 $expected_role = ($expected_role === 'user') ? 'assistant' : 'user';
             }
         }
-        
+
         if (empty($filtered_msgs) || $filtered_msgs[0]['role'] !== 'user') {
             $filtered_msgs = [];
             $expected_role = 'assistant';
@@ -486,14 +494,14 @@ if (isset($_GET['api'])) {
                 array_shift($filtered_msgs);
             }
         }
-        
+
         foreach ($filtered_msgs as $m) {
             $api_messages[] = ['role' => $m['role'], 'content' => $m['content']];
         }
-        
+
         // Call Mistral API with streaming
         $payload = json_encode(['model' => $conv['model'], 'messages' => $api_messages, 'max_tokens' => MAX_TOKENS, 'temperature' => 0.7, 'stream' => true]);
-        
+
         $fullResponse = '';
         $ch = curl_init(API_URL);
         curl_setopt_array($ch, [
@@ -505,12 +513,12 @@ if (isset($_GET['api'])) {
             CURLOPT_WRITEFUNCTION => function($curl, $data) use (&$fullResponse) {
                 static $buffer = '';
                 $buffer .= $data;
-                
+
                 // Process complete lines
                 while (($pos = strpos($buffer, "\n")) !== false) {
                     $line = substr($buffer, 0, $pos);
                     $buffer = substr($buffer, $pos + 1);
-                    
+
                     $line = trim($line);
                     if (strpos($line, 'data: ') === 0) {
                         $jsonStr = substr($line, 6);
@@ -529,31 +537,31 @@ if (isset($_GET['api'])) {
                 return strlen($data);
             }
         ]);
-        
+
         curl_exec($ch);
         $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $cerr = curl_error($ch);
         curl_close($ch);
-        
+
         if ($cerr) {
             echo "data: " . json_encode(['error' => 'Network: ' . $cerr]) . "\n\n";
             exit;
         }
-        
+
         if ($http >= 400) {
             echo "data: " . json_encode(['error' => 'API error: ' . $http]) . "\n\n";
             exit;
         }
-        
+
         // Save the full response to database
         if ($fullResponse !== '') {
             db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'assistant', $fullResponse]);
         }
-        
+
         echo "data: " . json_encode(['done' => true]) . "\n\n";
         exit;
     }
-    
+
     echo json_encode(['success' => false, 'error' => 'Unknown action']);
     exit;
 }
@@ -569,34 +577,34 @@ $conversations = db()->query("SELECT * FROM conversations ORDER BY updated_at DE
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@highlightjs/curl@1.0.0/highlight.min.js"></script>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0d0d0d;--sidebar:#0a0a0a;--sidebar-hover:#1a1a1a;--sidebar-active:#262626;--surface:#141414;--border:#262626;--text:#f5f5f5;--muted:#737373;--accent:#d4a574;--accent-hover:#c99663;--user-bg:#1a1a1a;--ai-bg:#0d0d0d;--code-bg:#0a0a0a;--code-text:#e5e5e5;--code-border:#262626;--font:'SF Mono','Monaco','Inconsolata','Fira Code',monospace;--r:6px}
-html,body{height:100%;overflow:hidden}
-body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex}
-.sidebar{width:240px;background:var(--sidebar);color:#a3a3a3;display:flex;flex-direction:column;height:100vh;flex-shrink:0;border-right:1px solid var(--border)}
+:root{--bg:#0d0d0d;--sidebar:#0a0a0a;--sidebar-hover:#1a1a1a;--sidebar-active:#262626;--surface:#141414;--border:#262626;--text:#f5f5f5;--muted:#737373;--accent:#d4a574;--accent-hover:#c99663;--user-bg:#1a1a1a;--ai-bg:#0d0d0d;--code-bg:#0a0a0a;--code-text:#e5e5e5;--code-border:#262626;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;--r:8px;--br:12px}
+html,body{height:100%;overflow:hidden;font-family:var(--font)}
+body{background:var(--bg);color:var(--text);display:flex;transition:background .25s ease}
+.sidebar{width:260px;background:var(--sidebar);color:#a3a3a3;display:flex;flex-direction:column;height:100vh;flex-shrink:0;border-right:1px solid var(--border)}
 .sidebar-top{padding:.75rem;border-bottom:1px solid var(--border)}
-.new-chat-btn{width:100%;background:transparent;border:1px solid var(--border);color:#a3a3a3;border-radius:var(--r);padding:.5rem .75rem;font-family:var(--font);font-size:.75rem;cursor:pointer;display:flex;align-items:center;gap:.5rem;transition:.15s}
+.new-chat-btn{width:100%;background:transparent;border:1px solid var(--border);color:#a3a3a3;border-radius:var(--r);padding:.5rem .75rem;font-size:.75rem;cursor:pointer;display:flex;align-items:center;gap:.5rem;transition:.15s}
 .new-chat-btn:hover{background:var(--sidebar-hover);border-color:#404040;color:#fff}
 .sidebar-logo{display:flex;align-items:center;gap:.5rem;padding:0 0 .75rem}
-.sidebar-logo-icon{width:24px;height:24px;background:var(--accent);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#000}
-.sidebar-logo span{font-size:.8rem;font-weight:600;color:#fff;letter-spacing:-.02em}
+.sidebar-logo-icon{width:28px;height:28px;background:var(--accent);border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;color:#000}
+.sidebar-logo span{font-size:.85rem;font-weight:600;color:#fff;letter-spacing:-.02em}
 .sidebar-logo small{font-size:.6rem;color:var(--muted);display:block;line-height:1;text-transform:uppercase;letter-spacing:.05em}
-.sidebar-section{padding:.5rem .75rem .25rem;font-size:.6rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
+.sidebar-section{padding:.6rem .8rem .3rem;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
 .conv-list{flex:1;overflow-y:auto;padding:.25rem .5rem}
 .conv-list::-webkit-scrollbar{width:4px}
 .conv-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-.conv-item{display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;border-radius:var(--r);cursor:pointer;transition:.1s}
+.conv-item{display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;border-radius:var(--r);cursor:pointer;transition:.15s;animation:fadeIn .2s ease}
 .conv-item:hover{background:var(--sidebar-hover)}
 .conv-item.active{background:var(--sidebar-active)}
 .conv-icon{font-size:.7rem;flex-shrink:0;opacity:.6}
-.conv-title{font-size:.7rem;color:#a3a3a3;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:1.4;font-family:var(--font)}
+.conv-title{font-size:.7rem;color:#a3a3a3;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:1.4}
 .conv-time{font-size:.55rem;color:var(--muted);flex-shrink:0}
 .conv-del{display:none;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.65rem;padding:.1rem .25rem;border-radius:3px;flex-shrink:0}
 .conv-item:hover .conv-del{display:block}
 .conv-del:hover{color:#ef4444;background:rgba(239,68,68,.1)}
-.sidebar-bottom{padding:.5rem .75rem;border-top:1px solid var(--border)}
-.api-status{display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;background:var(--sidebar-hover);border-radius:var(--r);font-size:.65rem;cursor:pointer;transition:.1s}
+.sidebar-bottom{padding:.6rem .8rem;border-top:1px solid var(--border)}
+.api-status{display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;background:var(--sidebar-hover);border-radius:var(--r);font-size:.65rem;cursor:pointer;transition:.1s}
 .api-status:hover{background:#262626}
 .api-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 .api-dot.ok{background:#22c55e;box-shadow:0 0 4px rgba(34,197,94,.5)}
@@ -604,13 +612,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 .api-label{color:#a3a3a3;flex:1}
 .api-edit{color:var(--muted);font-size:.55rem}
 .main{flex:1;display:flex;flex-direction:column;height:100vh;overflow:hidden}
-.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:.5rem 1rem;display:flex;align-items:center;gap:.75rem;flex-shrink:0}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:.5rem 1rem;display:flex;align-items:center;gap:.75rem;flex-shrink:0;transition:background .25s ease}
 .topbar-title{font-size:.75rem;font-weight:500;color:var(--text);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-family:var(--font)}
-.model-select,.persona-select{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:.25rem .5rem;font-size:.65rem;color:var(--muted);font-family:var(--font);cursor:pointer}
+.model-select,.persona-select{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:.3rem .6rem;font-size:.65rem;color:var(--muted);font-family:var(--font);cursor:pointer}
 .model-select:hover,.persona-select:hover{border-color:#404040;color:#a3a3a3}
 .model-select:focus,.persona-select:focus{outline:none;border-color:var(--accent)}
 .key-popup{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:999}
-.key-box{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;width:400px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.key-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--br);padding:1.5rem;width:400px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
 .key-box h2{font-size:.9rem;margin-bottom:.3rem;font-family:var(--font);font-weight:500;color:#fff}
 .key-box p{font-size:.7rem;color:var(--muted);margin-bottom:1rem;line-height:1.5;font-family:var(--font)}
 .key-input-row{display:flex;gap:.5rem}
@@ -618,73 +626,94 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
 .key-input:focus{outline:none;border-color:var(--accent)}
 .key-save-btn{background:var(--accent);border:none;color:#000;padding:.5rem 1rem;border-radius:4px;font-weight:500;font-size:.7rem;cursor:pointer;font-family:var(--font);white-space:nowrap}
 .key-save-btn:hover{background:var(--accent-hover)}
-.welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem;padding:2rem;text-align:center}
-.welcome-logo{width:48px;height:48px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;box-shadow:0 4px 16px rgba(212,165,116,.2)}
-.welcome h1{font-size:1.1rem;font-weight:500;color:var(--text);font-family:var(--font)}
-.welcome p{font-size:.75rem;color:var(--muted);max-width:380px;line-height:1.6;font-family:var(--font)}
-.suggestions{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;max-width:560px}
-.suggestion{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.5rem .75rem;font-size:.7rem;color:var(--text);cursor:pointer;transition:.15s;text-align:left;display:flex;align-items:center;gap:.5rem;font-family:var(--font)}
-.suggestion:hover{border-color:var(--accent);background:var(--sidebar-hover);transform:translateY(-1px)}
+.key-popup button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;font-family:var(--font)}
+.welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem;padding:2rem;text-align:center;animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.welcome-logo{width:48px;height:48px;background:var(--accent);border-radius:var(--br);display:flex;align-items:center;justify-content:center;font-size:1.2rem;box-shadow:0 4px 16px rgba(212,165,116,.2)}
+.welcome h1{font-size:1.1rem;font-weight:500;color:var(--text)}
+.welcome p{font-size:.75rem;color:var(--muted);max-width:380px;line-height:1.6}
+.suggestions{display:flex;flex-wrap:gap:.5rem;justify-content:center;max-width:560px}
+.suggestion{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.5rem .75rem;font-size:.7rem;color:var(--text);cursor:pointer;transition:.2s ease;text-align:left;display:flex;align-items:center;gap:.5rem;font-family:var(--font)}
+.suggestion:hover{transform:translateY(-2px);border-color:var(--accent);background:var(--sidebar-hover)}
 .chat-area{flex:1;overflow-y:auto;padding:1rem 0;scroll-behavior:smooth}
 .chat-area::-webkit-scrollbar{width:4px}
 .chat-area::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
-.msg-group{max-width:800px;margin:0 auto;padding:.25rem 1rem}
-.msg{display:flex;gap:.75rem;padding:.5rem 0;animation:fadeIn .2s ease}
-@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.msg-group{max-width:840px;margin:0 auto;padding:.3rem 1rem}
+.msg{display:flex;gap:.75rem;padding:.6rem 0;animation:msgIn .25s ease;transition:opacity .15s}
+@keyframes msgIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 .msg-avatar{width:28px;height:28px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.7rem;margin-top:2px;font-family:var(--font);font-weight:600}
 .msg-avatar.user{background:var(--user-bg);color:var(--muted);border:1px solid var(--border)}
 .msg-avatar.ai{background:var(--accent);color:#000}
 .msg-content{flex:1;min-width:0}
-.msg-name{font-size:.65rem;font-weight:500;color:var(--muted);margin-bottom:.25rem;font-family:var(--font)}
-.msg-text{font-size:.75rem;line-height:1.6;color:var(--text);font-family:var(--font)}
-.msg-text h1{font-size:.95rem;font-weight:600;margin:.75rem 0 .3rem;color:#fff}
-.msg-text h2{font-size:.85rem;font-weight:600;margin:.6rem 0 .25rem;color:#fff;border-bottom:1px solid var(--border);padding-bottom:.2rem}
-.msg-text h3{font-size:.8rem;font-weight:600;margin:.5rem 0 .2rem;color:#e5e5e5}
-.msg-text p{margin-bottom:.5rem}.msg-text p:last-child{margin-bottom:0}
-.msg-text ul,.msg-text ol{padding-left:1.25rem;margin:.3rem 0 .5rem}
-.msg-text li{margin-bottom:.15rem}
+.msg-name{font-size:.65rem;font-weight:500;color:var(--muted);margin-bottom:.3rem;font-family:var(--font)}
+.msg-text{font-size:.75rem;line-height:1.65;color:var(--text);font-family:var(--font)}
+.msg-text h1{font-size:1rem;font-weight:600;margin:.8rem 0 .4rem;color:#fff}
+.msg-text h2{font-size:.9rem;font-weight:600;margin:.7rem 0 .35rem;color:#e5e5e5;border-bottom:1px solid var(--border);padding-bottom:.2rem}
+.msg-text h3{font-size:.85rem;font-weight:500;margin:.5rem 0 .25rem;color:#fff}
+.msg-text p{margin-bottom:.6rem}.msg-text p:last-child{margin-bottom:0}
+.msg-text ul,.msg-text ol{padding-left:1.35rem;margin:.4rem 0 .7rem}
+.msg-text li{margin-bottom:.2rem}
 .msg-text strong{font-weight:600;color:#fff}
 .msg-text em{font-style:italic;color:var(--muted)}
-.msg-text hr{border:none;border-top:1px solid var(--border);margin:.6rem 0}
-.msg-text blockquote{border-left:2px solid var(--accent);padding:.25rem .6rem;background:var(--sidebar-hover);border-radius:0 4px 4px 0;margin:.4rem 0;color:var(--muted);font-style:italic}
-.msg-text table{width:100%;border-collapse:collapse;margin:.5rem 0;font-size:.7rem}
-.msg-text th{background:var(--sidebar-hover);border:1px solid var(--border);padding:.3rem .5rem;font-weight:600;text-align:left;color:#fff}
-.msg-text td{border:1px solid var(--border);padding:.25rem .5rem;color:var(--text)}
+.msg-text hr{background:transparent;border:none;border-top:1px solid var(--border);margin:.7rem 0}
+.msg-text blockquote{font-size:.8rem;border-left:2px solid var(--accent);padding:.3rem .7rem;background:rgba(212,165,116,.1);border-radius:0 6px 6px 0;margin:.5rem 0;color:#a3a3a3;font-style:normal}
+.msg-text table{width:100%;border-collapse:collapse;margin:.6rem 0;font-size:.7rem}
+.msg-text th{background:var(--sidebar-hover);border:1px solid var(--border);padding:.3rem .6rem;font-weight:600;text-align:left;color:#fff}
+.msg-text td{border:1px solid var(--border);padding:.25rem .6rem;color:var(--text)}
 .msg-text tr:nth-child(even) td{background:#1a1a1a}
-.inline-code{font-family:var(--font);font-size:.7em;background:var(--sidebar-hover);border:1px solid var(--border);padding:.1rem .3rem;border-radius:3px;color:var(--accent)}
-.code-block{border-radius:8px;overflow:hidden;margin:.5rem 0;border:1px solid var(--code-border);background:#1e1e2e;position:relative}
-.code-header{background:#2a2a3e;display:flex;align-items:center;padding:.5rem .75rem;border-bottom:1px solid var(--code-border);position:relative}
-.code-lang{font-family:var(--font);font-size:.65rem;color:#a9b1d6;text-transform:uppercase;letter-spacing:.08em;font-weight:600;background:#3a3a5c;padding:.2rem .5rem;border-radius:4px}
-.copy-btn{background:#3a3a5c;border:none;color:#a9b1d6;border-radius:4px;padding:.3rem .6rem;font-size:.65rem;cursor:pointer;font-family:var(--font);transition:.15s;display:flex;align-items:center;gap:.3rem}
+.inline-code{font-family:var(--font);font-size:.72em;background:var(--sidebar-hover);border:1px solid var(--border);padding:.12rem .35rem;border-radius:3px;color:var(--accent)}
+.code-block{--hljs-bg:#1e1e2e;border-radius:var(--br);overflow:hidden;margin:.55rem 0;border:1px solid var(--code-border);background:#1e1e2e;position:relative;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.code-header{background:#2a2a3e;display:flex;align-items:center;padding:.5rem .8rem;border-bottom:1px solid var(--code-border);position:relative}
+.code-lang{font-family:var(--font);font-size:.68rem;color:#a9b1d6;text-transform:uppercase;letter-spacing:.08em;font-weight:600;background:#3a3a5c;padding:.2rem .6rem;border-radius:4px}
+.copy-btn{background:#3a3a5c;border:none;color:#a9b1d6;border-radius:4px;padding:.3rem .65rem;font-size:.67rem;cursor:pointer;font-family:var(--font);transition:.18s;display:flex;align-items:center;gap:.3rem;font-weight:500}
 .copy-btn:hover{background:#4a4a6c;color:#fff}
+.copy-btn:active{transform:scale(.95)}
 .code-block pre{background:#1e1e2e;padding:0;overflow-x:auto;margin:0;counter-reset:line}
-.code-block pre code{font-family:var(--font);font-size:.75rem;color:#a9b1d6;line-height:1.6;white-space:pre;display:block;padding:.75rem .85rem}
+.code-block pre code{font-family:var(--font);font-size:.78rem;color:#a9b1d6;line-height:1.68;white-space:pre;display:block;padding:.85rem .95rem}
 .code-block pre code .hljs{background:transparent;padding:0}
-.line-numbers{display:inline-block;width:2.5rem;text-align:right;padding-right:.75rem;color:#565869;user-select:none;border-right:1px solid #3a3a5c;margin-right:.75rem}
-.thinking-dots{display:inline-flex;gap:3px;padding:.3rem 0}
-.thinking-dots span{width:5px;height:5px;background:var(--accent);border-radius:50%;opacity:.5;animation:dot .8s infinite}
-.thinking-dots span:nth-child(2){animation-delay:.15s}
-.thinking-dots span:nth-child(3){animation-delay:.3s}
-@keyframes dot{0%,60%,100%{opacity:.5;transform:scale(1)}30%{opacity:1;transform:scale(1.15)}}
-.input-zone{border-top:1px solid var(--border);background:var(--surface);padding:.75rem 1rem;flex-shrink:0}
-.input-inner{max-width:800px;margin:0 auto;background:var(--bg);border:1px solid var(--border);border-radius:6px;transition:.15s}
-.input-inner:focus-within{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
-.input-inner textarea{width:100%;background:none;border:none;padding:.6rem .75rem .4rem;color:var(--text);font-family:var(--font);font-size:.75rem;resize:none;outline:none;line-height:1.5;min-height:44px;max-height:180px;display:block}
-.input-inner textarea::placeholder{color:var(--muted)}
-.input-toolbar{display:flex;align-items:center;padding:.35rem .5rem;gap:.5rem}
-.input-hint-txt{font-size:.6rem;color:var(--muted);flex:1;font-family:var(--font)}
+.line-numbers{display:inline-block;width:2.7rem;text-align:right;padding-right:.85rem;color:#565869;user-select:none;border-right:1px solid #3a3a5c;margin-right:.8rem}
+.thinking-dots{display:inline-flex;gap:4px;padding:.35rem 0}
+.thinking-dots span{width:5px;height:5px;background:var(--accent);border-radius:50%;opacity:.55;animation:dot .85s infinite}
+.thinking-dots span:nth-child(2){animation-delay:.17s}
+.thinking-dots span:nth-child(3){animation-delay:.34s}
+@keyframes dot{0%,60%,100%{opacity:.55;transform:scale(1)}30%{opacity:1;transform:scale(1.2)}}
+.streaming-text{white-space:pre-wrap;min-width:0;animation:textStream .3s steps(40,1) forwards}
+@keyframes textStream{from{opacity:0;width:0}to{opacity:1}}
+.finalized{opacity:1!important}
+.msg-copy-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:.65rem;padding:.2rem .5rem;cursor:pointer;margin-top:.3rem;font-family:var(--font);transition:.15s}
+.msg-copy-btn:hover{color:var(--accent);border-color:var(--accent)}
+.msg:hover .msg-copy-btn{display:flex;align-items:center;gap:.25rem}
+.input-zone{border-top:1px solid var(--border);background:var(--surface);padding:.8rem 1rem;flex-shrink:0;transition:background .25s ease}
+.input-inner{max-width:840px;margin:0 auto;background:var(--bg);border:1px solid var(--border);border-radius:var(--r);transition:.2s ease}
+.input-inner:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 0 8px var(--accent)}
+textarea{width:100%;background:none;border:none;padding:.65rem .85rem .45rem;color:var(--text);font-family:var(--font);font-size:.75rem;resize:none;outline:none;line-height:1.55;min-height:48px;max-height:184px}
+textarea::placeholder{color:var(--muted)}
+.input-toolbar{display:flex;align-items:center;padding:.4rem .6rem;gap:.5rem}
+.input-hint-txt{font-size:.62rem;color:var(--muted);flex:1;font-family:var(--font)}
+.char-count{font-size:.6rem;color:var(--muted);flex:1;font-family:var(--font)}
+.char-count.warn{color:#f59e0b}.char-count.over{color:#ef4444;font-weight:600}
 .send-btn{background:var(--accent);border:none;color:#000;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.8rem;transition:.15s;flex-shrink:0}
 .send-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}
 .send-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
-.msg-copy-btn{display:none;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:.6rem;padding:.15rem .4rem;cursor:pointer;margin-top:.25rem;font-family:var(--font);transition:.15s}
-.msg-copy-btn:hover{color:var(--accent);border-color:var(--accent)}
-.msg:hover .msg-copy-btn{display:inline-flex;align-items:center;gap:.25rem}
-.char-count{font-size:.6rem;color:var(--muted);flex:1;font-family:var(--font)}
-.char-count.warn{color:#f59e0b}.char-count.over{color:#ef4444;font-weight:600}
+.msg-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
+.msg-btn:hover{background:var(--sidebar-hover)}
 .hamburger{display:none;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.9rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
-.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99}
-.sidebar-overlay.open{display:block}
-@media(max-width:700px){.sidebar{display:flex;position:fixed;left:-240px;top:0;bottom:0;z-index:100;transition:left .25s ease;width:240px}.sidebar.open{left:0}.hamburger{display:flex}.msg-group{padding:.25rem .75rem}}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(38,38,38,.85);z-index:99}
+.sidebar-overlay.open{display:block;backdrop-filter:blur(4px)}
+.sidebar-toggle{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.8rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
+.model-badge{display:inline-block;padding:.15rem .4rem;border-radius:6px;font-size:.6rem;font-weight:500;background:rgba(212,165,116,.15);color:var(--accent);border:1px solid var(--accent)}
+@media(max-width:720px){
+  .sidebar{display:flex;position:fixed;left:-260px;top:0;bottom:0;z-index:100;transition:left .25s cubic-bezier(.4,.0,.23,1);width:260px}
+  .sidebar.open{left:0}
+  .hamburger{display:flex}
+  .msg-group{max-width:96vw;padding:.3rem .8rem}
+}
+@media(max-width:480px){
+  .sidebar{width:100vw}
+  .sidebar.open{width:100vw}
+  .conv-list{padding-bottom:3rem}
+  .welcome{padding-bottom:5rem}
+}
 </style>
 </head>
 <body>
@@ -694,13 +723,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
       <div class="sidebar-logo-icon">C</div>
       <div><span>Claude Code</span><small>v<?= VERSION ?></small></div>
     </div>
-    <button class="new-chat-btn" onclick="newConv()">⟐ New Chat</button>
+    <button class="new-chat-btn" onclick="newConv()" title="New conversation (Ctrl+N)">⟐ New Chat</button>
   </div>
   <div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
     <?php if (!empty($conversations)): ?><div class="sidebar-section">Recent</div><?php endif; ?>
     <div class="conv-list" id="convList">
       <?php foreach ($conversations as $c): ?>
-      <div class="conv-item" id="ci-<?= $c['id'] ?>" onclick="loadConv(<?= $c['id'] ?>)">
+      <div class="conv-item <?= $c['id'] == current($conversations)['id'] ? 'active' : '' ?>" id="ci-<?= $c['id'] ?>" onclick="loadConv(<?= $c['id'] ?>)">
         <span class="conv-icon"><?= h($PERSONAS[$c['persona']]['icon'] ?? '◇') ?></span>
         <span class="conv-title"><?= h($c['title']) ?></span>
         <span class="conv-time"><?= timeAgo($c['updated_at']) ?></span>
@@ -718,13 +747,13 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
     </div>
   </div>
 </nav>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 <div class="main">
-  <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
   <div class="topbar" id="topbar">
-    <button class="hamburger" onclick="toggleSidebar()" title="Menu">☰</button>
+    <button class="hamburger" onclick="toggleSidebar()" title="Menu (☰)">☰</button>
     <div class="topbar-title" id="topbarTitle">Claude Code</div>
-    <select class="model-select" id="modelSelect" onchange="updateConvModel()"><?php foreach ($MODELS as $k => $m): ?><option value="<?= h($k) ?>"><?= h($m['label']) ?></option><?php endforeach; ?></select>
-    <select class="persona-select" id="personaSelect" onchange="updateConvPersona()"><?php foreach ($PERSONAS as $k => $p): ?><option value="<?= h($k) ?>"><?= h($p['icon']) ?> <?= h($p['label']) ?></option><?php endforeach; ?></select>
+    <select class="model-select model-badge" id="modelSelect" onchange="updateConvModel()"><?php foreach ($MODELS as $k => $m): ?><option value="<?= h($k) ?>" <?= h($k) == current($conversations)['model'] ? 'selected' : '' ?>><?= h($m['label']) ?> <?= h($m['desc']) ?></option><?php endforeach; ?></select>
+    <select class="persona-select model-badge" id="personaSelect" onchange="updateConvPersona()"><?php foreach ($PERSONAS as $k => $p): ?><option value="<?= h($k) ?>" <?= h($k) == current($conversations)['persona'] ? 'selected' : '' ?>><?= h($p['icon']) ?> <?= h($p['label']) ?></option><?php endforeach; ?></select>
   </div>
   <div id="welcomeScreen" class="welcome">
     <div class="welcome-logo">C</div>
@@ -739,19 +768,19 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);display:flex
   </div>
   <div id="chatScreen" style="display:none;flex:1;overflow:hidden;flex-direction:column;position:relative">
     <div class="chat-area" id="chatArea"><div class="msg-group" id="msgContainer"></div></div>
-    <div id="dragOverlay" style="display:none;position:absolute;inset:0;background:rgba(38,38,38,.85);border:2px dashed var(--accent);border-radius:8px;margin:1rem;z-index:100;align-items:center;justify-content:center;pointer-events:none"><div style="text-align:center;color:var(--text);font-size:.9rem;font-family:var(--font)"><div style="font-size:2rem;margin-bottom:.5rem">🖼️</div>Déposer l'image ici</div></div>
+    <div id="dragOverlay" style="display:none;position:absolute;inset:0;background:rgba(38,38,38,.85);border:2px dashed var(--accent);border-radius:var(--br);margin:1rem;z-index:100;align-items:center;justify-content:center;pointer-events:none"><div style="text-align:center;color:var(--text);font-size:.9rem;font-family:var(--font)"><div style="font-size:2rem;margin-bottom:.5rem">🖼️</div>Drop image here</div></div>
   </div>
   <div class="input-zone">
     <div class="input-inner">
       <div id="imagePreview" style="display:none;padding:.5rem .75rem;border-bottom:1px solid var(--border);gap:.5rem;flex-wrap:wrap"></div>
-      <textarea id="msgInput" rows="1" placeholder="Ask anything... (Enter to send, Shift+Enter for new line)" onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCount(this)"></textarea>
+      <textarea id="msgInput" rows="1" placeholder="Ask anything... (Enter to send, Shift+Enter for new line)" onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCount(this)" accesskey="n"></textarea>
       <div class="input-toolbar">
-        <span class="char-count" id="charCount">0 / 8000</span>
+        <span class="char-count" id="charCount">0 / <?= MAX_TOKENS ?></span>
         <span class="input-hint-txt" id="convInfo" style="display:none">Select or create a conversation</span>
         <input type="file" id="imageInput" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none" onchange="handleImageSelect(event)">
-        <button class="send-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);width:28px;height:28px;font-size:.75rem">📎</button>
+        <button class="send-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image (Ctrl+/)">📎</button>
         <input type="file" id="fileInput" accept=".php,.js,.ts,.py,.html,.css,.txt,.csv,.json,.md,.sql" style="display:none" onchange="handleFileSelect(event)">
-        <button class="send-btn" id="fileAttachBtn" onclick="document.getElementById('fileInput').click()" title="Attach file" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);width:28px;height:28px;font-size:.75rem">📄</button>
+        <button class="send-btn" id="fileAttachBtn" onclick="document.getElementById('fileInput').click()" title="Attach file">📄</button>
         <button class="send-btn" id="sendBtn" onclick="sendMsg()" disabled title="Send (Enter)">➤</button>
       </div>
     </div>
@@ -810,7 +839,7 @@ function handleImageFile(file){
     if (!file) return;
     const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!validTypes.includes(file.type)) {
-        alert('Format non supporté. Veuillez utiliser jpg, png, gif ou webp.');
+        showToast('Format non supporté. Veuillez utiliser jpg, png, gif ou webp.');
         return;
     }
     const reader = new FileReader();
@@ -837,21 +866,42 @@ function setupPasteHandler(){
     });
 }
 
+function showToast(message) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 1.5rem;
+        right: 1.5rem;
+        background: rgba(30, 30, 38, 0.95);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        padding: .75rem 1rem;
+        font-size: .7rem;
+        color: var(--text);
+        font-family: var(--font);
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0,0,0,.3);
+        animation: toastIn .3s ease, toastOut .3s ease .3s forwards;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
 function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open')}
-function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.textContent='✓';setTimeout(()=>btn.textContent='📋 Copy',1500)})}
-function updateCharCount(el){const l=el.value.length,m=8000,c=document.getElementById('charCount');if(!c)return;c.textContent=l+' / '+m;c.className='char-count'+(l>m?' over':l>m*.8?' warn':'')}
+function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='📋 Copy';btn.style.background='';btn.style.color=''},1500)})}
+function updateCharCount(el){const l=el.value.length,m=<?= MAX_TOKENS ?>,c=document.getElementById('charCount');if(!c)return;c.textContent=l+' / '+m;c.className='char-count'+(l>m?' over':l>m*.8?' warn':'')}
 function showKeyPopup(){document.getElementById('keyPopup').style.display='flex'}
 function hideKeyPopup(){document.getElementById('keyPopup').style.display='none'}
-function handleImageSelect(event){const file=event.target.files[0];if(!file)return;const validTypes=['image/jpeg','image/png','image/gif','image/webp'];if(!validTypes.includes(file.type)){alert('Please select a valid image (jpg, png, gif, webp)');return;}const reader=new FileReader();reader.onload=function(e){selectedImageBase64=e.target.result;selectedImageType=file.type;showImagePreview()};reader.readAsDataURL(file)}
-function showImagePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style=\"position:relative\"><img src=\"${selectedImageBase64}\" style=\"height:60px;border-radius:4px;border:1px solid var(--border)\"><button onclick=\"clearImage()\" style=\"position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center\">×</button></div>`}
+function handleImageSelect(event){const file=event.target.files[0];if(!file)return;const validTypes=['image/jpeg','image/png','image/gif','image/webp'];if(!validTypes.includes(file.type)){showToast('Please select a valid image (jpg, png, gif, webp)');return}const reader=new FileReader();reader.onload=function(e){selectedImageBase64=e.target.result;selectedImageType=file.type;showImagePreview()};reader.readAsDataURL(file)}
+function showImagePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style="position:relative"><img src="${selectedImageBase64}" style="height:60px;border-radius:4px;border:1px solid var(--border)"><button onclick="clearImage()" style="position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button></div>`}
 function clearImage(){selectedImageBase64=null;selectedImageType=null;document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML='';document.getElementById('imageInput').value=''}
-function handleFileSelect(event){const file=event.target.files[0];if(!file)return;const validExts=['.php','.js','.ts','.py','.html','.css','.txt','.csv','.json','.md','.sql'];const ext='.'+file.name.split('.').pop().toLowerCase();if(!validExts.includes(ext)){alert('Please select a valid file type (.php, .js, .ts, .py, .html, .css, .txt, .csv, .json, .md, .sql)');return;}if(file.size>512000){alert('File size exceeds 500KB limit');return;}const reader=new FileReader();reader.onload=function(e){selectedFileContent=e.target.result;selectedFileName=file.name;showFilePreview()};reader.readAsText(file)}
+function handleFileSelect(event){const file=event.target.files[0];if(!file)return;const validExts=['.php','.js','.ts','.py','.html','.css','.txt','.csv','.json','.md','.sql'];const ext='.'+file.name.split('.').pop().toLowerCase();if(!validExts.includes(ext)){showToast('Please select a valid file type (.php, .js, .ts, .py, .html, .css, .txt, .csv, .json, .md, .sql)');return}if(file.size>512000){showToast('File size exceeds 500KB limit');return}const reader=new FileReader();reader.onload=function(e){selectedFileContent=e.target.result;selectedFileName=file.name;showFilePreview()};reader.readAsText(file)}
 function showFilePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style="display:flex;align-items:center;gap:.5rem;background:var(--surface);padding:.3rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;max-width:200px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 ${esc(selectedFileName)}</span><button onclick="clearFile()" style="background:#ef4444;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button></div>`}
 function clearFile(){selectedFileContent=null;selectedFileName=null;document.getElementById('fileInput').value='';document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML=''}
 async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d=await r.json();if(d.success){addConvToSidebar(d.id,'New conversation');await loadConv(d.id)}}
 function addConvToSidebar(id,title){const l=document.getElementById('convList'),e=l.querySelector('[style]');if(e)e.remove();const el=document.createElement('div');el.className='conv-item';el.id='ci-'+id;el.onclick=()=>loadConv(id);el.innerHTML=`<span class="conv-icon">◇</span><span class="conv-title">${esc(title)}</span><span class="conv-time">now</span><button class="conv-del" onclick="event.stopPropagation();delConv(${id})">×</button>`;l.prepend(el)}
-async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages)appendMessage(m.role,m.content,false);document.getElementById('convInfo').textContent=d.conv.model;updateSendButtonState();document.getElementById('msgInput').focus();scrollBottom()}
-async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id){currentConvId=null;document.getElementById('chatScreen').style.display='none';document.getElementById('welcomeScreen').style.display='flex';document.getElementById('topbarTitle').textContent='Claude Code';updateSendButtonState()}}
+async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages){appendMessage(m.role,m.content,false);if(m.role==='assistant')applyHighlighting()}}async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id){currentConvId=null;document.getElementById('chatScreen').style.display='none';document.getElementById('welcomeScreen').style.display='flex';document.getElementById('topbarTitle').textContent='Claude Code';updateSendButtonState()}}
 
 function updateSendButtonState(){
     const sendBtn = document.getElementById('sendBtn');
@@ -880,337 +930,3 @@ async function stopStreaming(){
 
 async function sendMsg(){
     if(sending||!currentConvId)return;
-    const input=document.getElementById('msgInput'),msg=input.value.trim();
-    if(!msg&&!selectedImageBase64&&!selectedFileContent)return;
-    
-    // Check if we should stop streaming instead
-    if(sending && abortController){
-        stopStreaming();
-        return;
-    }
-    
-    sending=true;
-    input.value='';
-    input.style.height='auto';
-    updateCharCount(input);
-    updateSendButtonState();
-    
-    const hasImage=!!selectedImageBase64;
-    const hasFile=!!selectedFileContent;
-    
-    if(hasImage){
-        appendMessageWithImage('user',msg,selectedImageBase64);
-        const imageData=selectedImageBase64;
-        const imageType=selectedImageType;
-        clearImage();
-        await sendMultimodalMessage(msg,imageData,imageType);
-    }else if(hasFile){
-        const fileName=selectedFileName;
-        const fileContent=selectedFileContent;
-        clearFile();
-        appendMessage('user',`📄 ${fileName}\n\n${msg}`);
-        const msgId = 'msg-' + Date.now();
-        currentStreamingMsgEl = appendStreamingMessage(msgId);
-        scrollBottom();
-        
-        abortController = new AbortController();
-        const signal = abortController.signal;
-        
-        try{
-            const formData = new FormData();
-            formData.append('conv_id', currentConvId);
-            formData.append('content', msg);
-            formData.append('file_content', fileContent);
-            formData.append('file_name', fileName);
-            
-            const response = await fetch('?api=stream_message', {
-                method: 'POST',
-                body: formData,
-                signal: signal
-            });
-            
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let fullContent = '';
-            
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n');
-                
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const jsonStr = line.slice(6);
-                        if (jsonStr === '[DONE]') continue;
-                        
-                        try {
-                            const data = JSON.parse(jsonStr);
-                            if (data.error) {
-                                throw new Error(data.error);
-                            }
-                            if (data.content) {
-                                fullContent += data.content;
-                                updateStreamingMessage(currentStreamingMsgEl, fullContent);
-                                scrollBottom();
-                            }
-                            if (data.done) {
-                                // Streaming complete
-                                finalizeStreamingMessage(currentStreamingMsgEl, fullContent);
-                                
-                                // Update conversation title if this is the first message
-                                const ci = document.getElementById('ci-' + currentConvId);
-                                if (ci) {
-                                    const t = ci.querySelector('.conv-title');
-                                    if (t && t.textContent === 'New conversation') {
-                                        // Generate automatic title using Mistral API
-                                        generateConversationTitle(currentConvId, msg);
-                                    }
-                                    const tm = ci.querySelector('.conv-time');
-                                    if (tm) tm.textContent = 'now';
-                                }
-                            }
-                        } catch (e) {
-                            if (!(e instanceof SyntaxError)) throw e;
-                        }
-                    }
-                }
-            }
-        } catch(e){
-            if(e.name === 'AbortError'){
-                // User stopped streaming
-                if(currentStreamingMsgEl){
-                    finalizeStreamingMessage(currentStreamingMsgEl, currentStreamingMsgEl.dataset.content || '');
-                }
-            } else {
-                removeThinking(currentStreamingMsgEl?.id);
-                appendError('Network error: ' + e.message);
-            }
-        } finally {
-            abortController = null;
-            sending = false;
-            currentStreamingMsgEl = null;
-            updateSendButtonState();
-            scrollBottom();
-        }
-    }else{
-        appendMessage('user',msg);
-        const msgId = 'msg-' + Date.now();
-        currentStreamingMsgEl = appendStreamingMessage(msgId);
-        scrollBottom();
-        
-        abortController = new AbortController();
-        const signal = abortController.signal;
-        
-        try{
-            const formData = new FormData();
-            formData.append('conv_id', currentConvId);
-            formData.append('content', msg);
-            
-            const response = await fetch('?api=stream_message', {
-                method: 'POST',
-                body: formData,
-                signal: signal
-            });
-            
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-            
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let fullContent = '';
-            
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n');
-                
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const jsonStr = line.slice(6);
-                        if (jsonStr === '[DONE]') continue;
-                        
-                        try {
-                            const data = JSON.parse(jsonStr);
-                            if (data.error) {
-                                throw new Error(data.error);
-                            }
-                            if (data.content) {
-                                fullContent += data.content;
-                                updateStreamingMessage(currentStreamingMsgEl, fullContent);
-                                scrollBottom();
-                            }
-                            if (data.done) {
-                                // Streaming complete
-                                finalizeStreamingMessage(currentStreamingMsgEl, fullContent);
-                                
-                                // Update conversation title if this is the first message
-                                const ci = document.getElementById('ci-' + currentConvId);
-                                if (ci) {
-                                    const t = ci.querySelector('.conv-title');
-                                    if (t && t.textContent === 'New conversation') {
-                                        // Generate automatic title using Mistral API
-                                        generateConversationTitle(currentConvId, msg);
-                                    }
-                                    const tm = ci.querySelector('.conv-time');
-                                    if (tm) tm.textContent = 'now';
-                                }
-                            }
-                        } catch (e) {
-                            if (!(e instanceof SyntaxError)) throw e;
-                        }
-                    }
-                }
-            }
-        } catch(e){
-            if(e.name === 'AbortError'){
-                // User stopped streaming
-                if(currentStreamingMsgEl){
-                    finalizeStreamingMessage(currentStreamingMsgEl, currentStreamingMsgEl.dataset.content || '');
-                }
-            } else {
-                removeThinking(currentStreamingMsgEl?.id);
-                appendError('Network error: ' + e.message);
-            }
-        } finally {
-            abortController = null;
-            sending = false;
-            currentStreamingMsgEl = null;
-            updateSendButtonState();
-            scrollBottom();
-        }
-    }
-}
-async function sendMultimodalMessage(text,imageBase64,imageType){const thinkId='think-'+Date.now();appendThinking(thinkId);scrollBottom();try{const formData=new FormData();formData.append('conv_id',currentConvId);formData.append('text',text||'');formData.append('image_base64',imageBase64);formData.append('image_type',imageType);const r=await fetch('?api=send_multimodal',{method:'POST',body:formData});const d=await r.json();removeThinking(thinkId);if(d.success){appendMessage('assistant',d.reply);const ci=document.getElementById('ci-'+currentConvId);if(ci){const t=ci.querySelector('.conv-title');const titleText=text||'Image';if(t&&t.textContent==='New conversation'){generateConversationTitle(currentConvId,text||'Image conversation')}const tm=ci.querySelector('.conv-time');if(tm)tm.textContent='now'}}else{appendError(d.error||'Unknown error')}}catch(e){removeThinking(thinkId);appendError('Network error: '+e.message)}}
-function appendMessage(role,content,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';const rendered=role==='user'?`<p>${esc(content).replace(/\n/g,'<br>')}</p>`:renderMd(content);div.innerHTML=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">${rendered}</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(content)}">📋 Copy</button></div>`;container.appendChild(div);if(scroll)scrollBottom();if(role==='assistant')applyHighlighting()}
-function appendMessageWithImage(role,text,imageBase64,scroll=true){const container=document.getElementById('msgContainer'),div=document.createElement('div');div.className='msg';const name=role==='user'?'You':'Claude',avatar=role==='user'?'👤':'C',avClass=role==='user'?'user':'ai';let html=`<div class="msg-avatar ${avClass}">${avatar}</div><div class="msg-content"><div class="msg-name">${name}</div><div class="msg-text">`;if(text)html+=`<p>${esc(text).replace(/\n/g,'<br>')}</p>`;html+=`<img src="${imageBase64}" style="max-width:300px;border-radius:6px;border:1px solid var(--border);margin-top:.5rem">`;html+=`</div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="${esc(text)}">📋 Copy</button></div>`;div.innerHTML=html;container.appendChild(div);if(scroll)scrollBottom();if(role==='assistant')applyHighlighting()}
-function appendThinking(id){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.className='msg';d.id=id;d.innerHTML=`<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text"><div class="thinking-dots"><span></span><span></span><span></span></div></div></div>`;c.appendChild(d)}
-function removeThinking(id){const el=document.getElementById(id);if(el)el.remove()}
-function appendError(msg){const c=document.getElementById('msgContainer'),d=document.createElement('div');d.style.cssText='max-width:800px;margin:0 auto;padding:.5rem 1rem';d.innerHTML=`<div style="background:#2a1a1a;border:1px solid #ef4444;border-radius:6px;padding:.6rem .8rem;color:#ef4444;font-size:.7rem">✗ ${esc(msg)}</div>`;c.appendChild(d)}
-
-// Streaming message functions
-function appendStreamingMessage(id){
-    const container = document.getElementById('msgContainer');
-    const div = document.createElement('div');
-    div.className = 'msg';
-    div.id = id;
-    div.dataset.content = '';
-    div.innerHTML = `<div class="msg-avatar ai">C</div><div class="msg-content"><div class="msg-name">Claude</div><div class="msg-text streaming-text"></div><button class="msg-copy-btn" onclick="copyMsg(this)" data-text="">📋 Copy</button></div>`;
-    container.appendChild(div);
-    return div;
-}
-
-function updateStreamingMessage(el, content){
-    if(!el) return;
-    el.dataset.content = content;
-    const textEl = el.querySelector('.streaming-text');
-    if(textEl){
-        textEl.innerHTML = renderMd(content);
-    }
-    const copyBtn = el.querySelector('.msg-copy-btn');
-    if(copyBtn){
-        copyBtn.setAttribute('data-text', content);
-    }
-}
-
-function finalizeStreamingMessage(el, content){
-    if(!el) return;
-    el.classList.add('finalized');
-    const textEl = el.querySelector('.streaming-text');
-    if(textEl){
-        textEl.classList.remove('streaming-text');
-        textEl.innerHTML = renderMd(content);
-        applyHighlighting();
-    }
-}
-function renderMd(s){
-    marked.setOptions({breaks:true,gfm:true});
-    let html = marked.parse(s);
-    html = html.replace(/<pre><code class="language-(\w*)">([\s\S]*?)<\/code><\/pre>/g, function(match, lang, code) {
-        const language = lang || 'text';
-        const decodedCode = code.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
-        const lines = decodedCode.split('\n');
-        const lineNumbers = lines.map((_,i)=>i+1).join('\n');
-        return `<div class="code-block"><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" onclick="copyCode(this)">📋 <span>Copy</span></button></div><pre><code class="language-${language}"><span class="line-numbers">${lineNumbers}</span>${decodedCode}</code></pre></div>`;
-    });
-    html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, function(match, code) {
-        const decodedCode = code.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
-        const lines = decodedCode.split('\n');
-        const lineNumbers = lines.map((_,i)=>i+1).join('\n');
-        return `<div class="code-block"><div class="code-header"><span class="code-lang">text</span><button class="copy-btn" onclick="copyCode(this)">📋 <span>Copy</span></button></div><pre><code><span class="line-numbers">${lineNumbers}</span>${decodedCode}</code></pre></div>`;
-    });
-    return html;
-}
-function copyCode(btn){
-    const codeBlock = btn.closest('.code-block');
-    const codeEl = codeBlock.querySelector('code');
-    const lineNumbersEl = codeEl.querySelector('.line-numbers');
-    let code = codeEl.textContent;
-    if(lineNumbersEl){
-        const lines = code.split('\n');
-        code = lines.map(line => line.replace(/^\d+\s*/, '')).join('\n');
-    }
-    navigator.clipboard.writeText(code).then(()=>{
-        const originalHTML = btn.innerHTML;
-        btn.innerHTML = '✓ <span>Copied</span>';
-        setTimeout(()=>{ btn.innerHTML = originalHTML; }, 2000);
-    });
-}
-function applyHighlighting(){
-    if(typeof hljs !== 'undefined'){
-        document.querySelectorAll('.code-block pre code').forEach((block)=>{
-            const clone = block.cloneNode(true);
-            const lineNumbersEl = clone.querySelector('.line-numbers');
-            if(lineNumbersEl){ lineNumbersEl.remove(); }
-            const cleanCode = clone.textContent;
-            block.textContent = cleanCode;
-            hljs.highlightElement(block);
-        });
-    }
-}
-async function updateConvModel(){if(!currentConvId)return;const m=document.getElementById('modelSelect').value;await fetch('?api=rename',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${currentConvId}&title=${encodeURIComponent(document.getElementById('topbarTitle').textContent)}`});document.getElementById('convInfo').textContent=m}
-async function updateConvPersona(){}
-async function generateConversationTitle(convId, firstMessage){
-    try{
-        const formData = new FormData();
-        formData.append('id', convId);
-        formData.append('first_message', firstMessage);
-        const r = await fetch('?api=generate_title', { method: 'POST', body: formData });
-        const d = await r.json();
-        if(d.success && d.title){
-            const ci = document.getElementById('ci-' + convId);
-            if(ci){
-                const t = ci.querySelector('.conv-title');
-                if(t){
-                    t.textContent = d.title.length > 35 ? d.title.slice(0, 35) + '…' : d.title;
-                    document.getElementById('topbarTitle').textContent = t.textContent;
-                }
-            }
-        }
-    }catch(e){
-        // If title generation fails, keep default title
-        console.log('Title generation failed:', e.message);
-    }
-}
-function esc(s){const d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML}
-function scrollBottom(){const ca=document.getElementById('chatArea');if(ca)setTimeout(()=>ca.scrollTop=ca.scrollHeight,50)}
-function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}}
-function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,180)+'px'}
-document.addEventListener('DOMContentLoaded',()=>{
-    document.getElementById('msgInput').focus();
-    const fc=document.querySelector('.conv-item');
-    if(fc){const id=parseInt(fc.id.replace('ci-',''));if(id)loadConv(id)}
-    setupDragAndDrop();
-    setupPasteHandler();
-});
-</script>
-</body>
-</html>
