@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.1');
+define('VERSION',      '2.0.2');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -680,7 +680,7 @@ body{background:var(--bg);color:var(--text);display:flex;transition:background .
 .streaming-text{white-space:pre-wrap;min-width:0;animation:textStream .3s steps(40,1) forwards}
 @keyframes textStream{from{opacity:0;width:0}to{opacity:1}}
 .finalized{opacity:1!important}
-.msg-copy-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:.65rem;padding:.2rem .5rem;cursor:pointer;margin-top:.3rem;font-family:var(--font);transition:.15s}
+.msg-copy-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.65rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-top:.3rem;font-family:var(--font);transition:.15s}
 .msg-copy-btn:hover{color:var(--accent);border-color:var(--accent)}
 .msg:hover .msg-copy-btn{display:flex;align-items:center;gap:.25rem}
 .input-zone{border-top:1px solid var(--border);background:var(--surface);padding:.8rem 1rem;flex-shrink:0;transition:background .25s ease}
@@ -692,15 +692,15 @@ textarea::placeholder{color:var(--muted)}
 .input-hint-txt{font-size:.62rem;color:var(--muted);flex:1;font-family:var(--font)}
 .char-count{font-size:.6rem;color:var(--muted);flex:1;font-family:var(--font)}
 .char-count.warn{color:#f59e0b}.char-count.over{color:#ef4444;font-weight:600}
-.send-btn{background:var(--accent);border:none;color:#000;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.8rem;transition:.15s;flex-shrink:0}
+.send-btn{background:var(--accent);border:none;color:#000;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content-center;cursor:pointer;font-size:.8rem;transition:.15s;flex-shrink:0}
 .send-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}
 .send-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
 .msg-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
 .msg-btn:hover{background:var(--sidebar-hover)}
-.hamburger{display:none;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.9rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
+.hamburger{display:none;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.9rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(38,38,38,.85);z-index:99}
 .sidebar-overlay.open{display:block;backdrop-filter:blur(4px)}
-.sidebar-toggle{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.8rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
+.sidebar-toggle{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.8rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0}
 .model-badge{display:inline-block;padding:.15rem .4rem;border-radius:6px;font-size:.6rem;font-weight:500;background:rgba(212,165,116,.15);color:var(--accent);border:1px solid var(--accent)}
 @media(max-width:720px){
   .sidebar{display:flex;position:fixed;left:-260px;top:0;bottom:0;z-index:100;transition:left .25s cubic-bezier(.4,.0,.23,1);width:260px}
@@ -805,7 +805,8 @@ let currentConvId = null, sending = false, selectedImageBase64 = null, selectedI
 function setupDragAndDrop(){
     const chatScreen = document.getElementById('chatScreen');
     const dragOverlay = document.getElementById('dragOverlay');
-    
+    const msgInput = document.getElementById('msgInput');
+
     chatScreen.addEventListener('dragover', function(e){
         e.preventDefault();
         e.stopPropagation();
@@ -813,7 +814,7 @@ function setupDragAndDrop(){
             dragOverlay.style.display = 'flex';
         }
     });
-    
+
     chatScreen.addEventListener('dragleave', function(e){
         e.preventDefault();
         e.stopPropagation();
@@ -821,15 +822,31 @@ function setupDragAndDrop(){
             dragOverlay.style.display = 'none';
         }
     });
-    
+
     chatScreen.addEventListener('drop', function(e){
         e.preventDefault();
         e.stopPropagation();
         dragOverlay.style.display = 'none';
-        
+
         const files = e.dataTransfer.files;
         if (files.length > 0) {
             handleImageFile(files[0]);
+        }
+    });
+
+    msgInput.addEventListener('dragover', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.types.includes('Files')) {
+            e.dataTransfer.dropEffect = 'copy';
+        }
+    });
+
+    msgInput.addEventListener('drop', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer.files.length > 0) {
+            handleImageFile(e.dataTransfer.files[0]);
         }
     });
 }
@@ -888,8 +905,10 @@ function showToast(message) {
     setTimeout(() => toast.remove(), 3000);
 }
 
+function esc(str){return str.replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open')}
-function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='📋 Copy';btn.style.background='';btn.style.color=''},1500)})}
+function copyCode(btn){const code=btn.nextElementSibling.querySelector('code');navigator.clipboard.writeText(code.textContent).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='⧉';btn.style.background='';btn.style.color=''},1500)})}
+function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='📋';btn.style.background='';btn.style.color=''},1500)})}
 function updateCharCount(el){const l=el.value.length,m=<?= MAX_TOKENS ?>,c=document.getElementById('charCount');if(!c)return;c.textContent=l+' / '+m;c.className='char-count'+(l>m?' over':l>m*.8?' warn':'')}
 function showKeyPopup(){document.getElementById('keyPopup').style.display='flex'}
 function hideKeyPopup(){document.getElementById('keyPopup').style.display='none'}
@@ -901,32 +920,5 @@ function showFilePreview(){const container=document.getElementById('imagePreview
 function clearFile(){selectedFileContent=null;selectedFileName=null;document.getElementById('fileInput').value='';document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML=''}
 async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d=await r.json();if(d.success){addConvToSidebar(d.id,'New conversation');await loadConv(d.id)}}
 function addConvToSidebar(id,title){const l=document.getElementById('convList'),e=l.querySelector('[style]');if(e)e.remove();const el=document.createElement('div');el.className='conv-item';el.id='ci-'+id;el.onclick=()=>loadConv(id);el.innerHTML=`<span class="conv-icon">◇</span><span class="conv-title">${esc(title)}</span><span class="conv-time">now</span><button class="conv-del" onclick="event.stopPropagation();delConv(${id})">×</button>`;l.prepend(el)}
-async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages){appendMessage(m.role,m.content,false);if(m.role==='assistant')applyHighlighting()}}async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id){currentConvId=null;document.getElementById('chatScreen').style.display='none';document.getElementById('welcomeScreen').style.display='flex';document.getElementById('topbarTitle').textContent='Claude Code';updateSendButtonState()}}
-
-function updateSendButtonState(){
-    const sendBtn = document.getElementById('sendBtn');
-    if (sending) {
-        sendBtn.disabled = true;
-        sendBtn.textContent = '■';
-        sendBtn.style.background = '#ef4444';
-        sendBtn.style.color = '#fff';
-    } else {
-        sendBtn.disabled = !API_KEY_SET;
-        sendBtn.textContent = '➤';
-        sendBtn.style.background = '';
-        sendBtn.style.color = '';
-    }
-}
-
-async function stopStreaming(){
-    if(abortController){
-        abortController.abort();
-        abortController = null;
-    }
-    sending = false;
-    updateSendButtonState();
-    document.getElementById('msgInput').focus();
-}
-
-async function sendMsg(){
-    if(sending||!currentConvId)return;
+async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages){appendMessage(m.role,m.content,false);if(m.role==='assistant')applyHighlighting()}}
+async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id
