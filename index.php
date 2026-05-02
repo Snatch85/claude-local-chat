@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.2');
+define('VERSION',      '2.0.3');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -617,7 +617,7 @@ body{background:var(--bg);color:var(--text);display:flex;transition:background .
 .model-select,.persona-select{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:.3rem .6rem;font-size:.65rem;color:var(--muted);font-family:var(--font);cursor:pointer}
 .model-select:hover,.persona-select:hover{border-color:#404040;color:#a3a3a3}
 .model-select:focus,.persona-select:focus{outline:none;border-color:var(--accent)}
-.key-popup{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:999}
+.key-popup{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content-center;z-index:999}
 .key-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--br);padding:1.5rem;width:400px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
 .key-box h2{font-size:.9rem;margin-bottom:.3rem;font-family:var(--font);font-weight:500;color:#fff}
 .key-box p{font-size:.7rem;color:var(--muted);margin-bottom:1rem;line-height:1.5;font-family:var(--font)}
@@ -629,7 +629,7 @@ body{background:var(--bg);color:var(--text);display:flex;transition:background .
 .key-popup button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.75rem;font-family:var(--font)}
 .welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem;padding:2rem;text-align:center;animation:fadeIn .3s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.welcome-logo{width:48px;height:48px;background:var(--accent);border-radius:var(--br);display:flex;align-items:center;justify-content:center;font-size:1.2rem;box-shadow:0 4px 16px rgba(212,165,116,.2)}
+.welcome-logo{width:48px;height:48px;background:var(--accent);border-radius:var(--br);display:flex;align-items:center;justify-content-center;font-size:1.2rem;box-shadow:0 4px 16px rgba(212,165,116,.2)}
 .welcome h1{font-size:1.1rem;font-weight:500;color:var(--text)}
 .welcome p{font-size:.75rem;color:var(--muted);max-width:380px;line-height:1.6}
 .suggestions{display:flex;flex-wrap:gap:.5rem;justify-content:center;max-width:560px}
@@ -692,7 +692,7 @@ textarea::placeholder{color:var(--muted)}
 .input-hint-txt{font-size:.62rem;color:var(--muted);flex:1;font-family:var(--font)}
 .char-count{font-size:.6rem;color:var(--muted);flex:1;font-family:var(--font)}
 .char-count.warn{color:#f59e0b}.char-count.over{color:#ef4444;font-weight:600}
-.send-btn{background:var(--accent);border:none;color:#000;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content-center;cursor:pointer;font-size:.8rem;transition:.15s;flex-shrink:0}
+.send-btn{background:var(--accent);border:none;color:#000;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content-center;cursor:pointer;font-size:.8rem;transition:.1s;flex-shrink:0}
 .send-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}
 .send-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
 .msg-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
@@ -778,7 +778,7 @@ textarea::placeholder{color:var(--muted)}
         <span class="char-count" id="charCount">0 / <?= MAX_TOKENS ?></span>
         <span class="input-hint-txt" id="convInfo" style="display:none">Select or create a conversation</span>
         <input type="file" id="imageInput" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none" onchange="handleImageSelect(event)">
-        <button class="send-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image (Ctrl+/)">📎</button>
+        <button class="send-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image (Ctrl+/)" type="button">📎</button>
         <input type="file" id="fileInput" accept=".php,.js,.ts,.py,.html,.css,.txt,.csv,.json,.md,.sql" style="display:none" onchange="handleFileSelect(event)">
         <button class="send-btn" id="fileAttachBtn" onclick="document.getElementById('fileInput').click()" title="Attach file">📄</button>
         <button class="send-btn" id="sendBtn" onclick="sendMsg()" disabled title="Send (Enter)">➤</button>
@@ -908,7 +908,7 @@ function showToast(message) {
 function esc(str){return str.replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open')}
 function copyCode(btn){const code=btn.nextElementSibling.querySelector('code');navigator.clipboard.writeText(code.textContent).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='⧉';btn.style.background='';btn.style.color=''},1500)})}
-function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='📋';btn.style.background='';btn.style.color=''},1500)})}
+function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='📋';btn.style.color=''},1500)})}
 function updateCharCount(el){const l=el.value.length,m=<?= MAX_TOKENS ?>,c=document.getElementById('charCount');if(!c)return;c.textContent=l+' / '+m;c.className='char-count'+(l>m?' over':l>m*.8?' warn':'')}
 function showKeyPopup(){document.getElementById('keyPopup').style.display='flex'}
 function hideKeyPopup(){document.getElementById('keyPopup').style.display='none'}
@@ -921,4 +921,4 @@ function clearFile(){selectedFileContent=null;selectedFileName=null;document.get
 async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d=await r.json();if(d.success){addConvToSidebar(d.id,'New conversation');await loadConv(d.id)}}
 function addConvToSidebar(id,title){const l=document.getElementById('convList'),e=l.querySelector('[style]');if(e)e.remove();const el=document.createElement('div');el.className='conv-item';el.id='ci-'+id;el.onclick=()=>loadConv(id);el.innerHTML=`<span class="conv-icon">◇</span><span class="conv-title">${esc(title)}</span><span class="conv-time">now</span><button class="conv-del" onclick="event.stopPropagation();delConv(${id})">×</button>`;l.prepend(el)}
 async function loadConv(id){const r=await fetch(`?api=load&id=${id}`);const d=await r.json();if(!d.success)return;currentConvId=id;document.querySelectorAll('.conv-item').forEach(el=>el.classList.remove('active'));const ci=document.getElementById('ci-'+id);if(ci)ci.classList.add('active');document.getElementById('topbarTitle').textContent=d.conv.title;document.getElementById('modelSelect').value=d.conv.model||'mistral-large-latest';document.getElementById('personaSelect').value=d.conv.persona||'assistant';document.getElementById('welcomeScreen').style.display='none';const cs=document.getElementById('chatScreen');cs.style.display='flex';const container=document.getElementById('msgContainer');container.innerHTML='';for(const m of d.messages){appendMessage(m.role,m.content,false);if(m.role==='assistant')applyHighlighting()}}
-async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id
+async function delConv(id){if(!confirm('Delete this conversation?'))return;await fetch('?api=del_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`id=${id}`});const el=document.getElementById('ci-'+id);if(el)el.remove();if(currentConvId===id)currentConv
