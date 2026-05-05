@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.5');
+define('VERSION',      '2.0.6');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -403,7 +403,7 @@ if (isset($_GET['api'])) {
             echo json_encode(['success' => false, 'error' => 'API ' . $http . ': ' . ($d['message'] ?? substr($raw,0,200))]);
             exit;
         }
-        $data  = json_decode($raw, true);
+        $data  = json_encode($raw, true);
         $reply = trim($data['choices'][0]['message']['content'] ?? '');
         if (!$reply) { echo json_encode(['success' => false, 'error' => 'Empty response']); exit; }
         db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'assistant', $reply]);
@@ -665,7 +665,7 @@ body{background:var(--bg);color:var(--text);display:flex;transition:background .
 .code-block{--hljs-bg:#1e1e2e;border-radius:var(--br);overflow:hidden;margin:.55rem 0;border:1px solid var(--code-border);background:#1e1e2e;position:relative;box-shadow:0 2px 8px rgba(0,0,0,.3)}
 .code-header{background:#2a2a3e;display:flex;align-items:center;padding:.5rem .8rem;border-bottom:1px solid var(--code-border);position:relative}
 .code-lang{font-family:var(--font);font-size:.68rem;color:#a9b1d6;text-transform:uppercase;letter-spacing:.08em;font-weight:600;background:#3a3a5c;padding:.2rem .6rem;border-radius:4px}
-.copy-btn{background:#3a3a5c;border:none;color:#a9b1d6;border-radius:4px;padding:.3rem .65rem;font-size:.67rem;cursor:pointer;font-family:var(--font);transition:.18s;display:flex;align-items:center;gap:.3rem;font-weight:500}
+.copy-btn{background:#3a3a5c;border:none;color:#a9b1d6;border-radius:4px;padding:.3rem .65rem;font-size:.67rem;cursor:button;font-family:var(--font);transition:.18s;display:flex;align-items:center;gap:.3rem;font-weight:500}
 .copy-btn:hover{background:#4a4a6c;color:#fff}
 .copy-btn:active{transform:scale(.95)}
 .code-block pre{background:#1e1e2e;padding:0;overflow-x:auto;margin:0;counter-reset:line}
