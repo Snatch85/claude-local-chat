@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.18');
+define('VERSION',      '2.0.19');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -713,6 +713,10 @@ textarea::placeholder{color:var(--muted)}
 .clear-conv-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
 .clear-conv-btn:hover{background:var(--sidebar-hover)}
 .timestamp{font-size:.6rem;color:var(--muted);margin-top:.3rem;text-align:right}
+.focus-mode .sidebar,.focus-mode .topbar{display:none}
+.focus-mode .main{margin-left:0}
+.focus-mode .chat-area{padding-top:1rem}
+.focus-mode .input-zone{padding-bottom:1rem}
 @media(max-width:720px){
   .sidebar{display:flex;position:fixed;left:-260px;top:0;bottom:0;z-index:100;transition:left .25s cubic-bezier(.4,.0,.23,1);width:260px}
   .sidebar.open{left:0}
@@ -921,6 +925,7 @@ function showToast(message) {
 
 function esc(str){return str.replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 function toggleSidebar(){const s=document.querySelector('.sidebar'),o=document.getElementById('sidebarOverlay');s.classList.toggle('open'),o.classList.toggle('open');document.body.classList.toggle('sidebar-collapsed')}
+function toggleFocusMode(){document.body.classList.toggle('focus-mode');document.getElementById('msgInput').focus()}
 function copyCode(btn){const code=btn.nextElementSibling.querySelector('code');navigator.clipboard.writeText(code.textContent).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='⧉';btn.style.background='';btn.style.color=''},1500)})}
 function copyMsg(btn){const t=btn.getAttribute('data-text');navigator.clipboard.writeText(t).then(()=>{btn.innerHTML='✓';btn.style.background='#22c55e';btn.style.color='#fff';setTimeout(()=>{btn.innerHTML='📋';btn.style.color=''},1500)})}
 function updateCharCount(el){const l=el.value.length,m=<?= MAX_TOKENS ?>,c=document.getElementById('charCount');if(!c)return;c.textContent=l+' / '+m;c.className='char-count'+(l>m?' over':l>m*.8?' warn':'')}
@@ -932,5 +937,4 @@ function clearImage(){selectedImageBase64=null;selectedImageType=null;document.g
 function handleFileSelect(event){const file=event.target.files[0];if(!file)return;const validExts=['.php','.js','.ts','.py','.html','.css','.txt','.csv','.json','.md','.sql'];const ext='.'+file.name.split('.').pop().toLowerCase();if(!validExts.includes(ext)){showToast('Please select a valid file type (.php, .js, .ts, .py, .html, .css, .txt, .csv, .json, .md, .sql)');return}if(file.size>512000){showToast('File size exceeds 500KB limit');return}const reader=new FileReader();reader.onload=function(e){selectedFileContent=e.target.result;selectedFileName=file.name;showFilePreview()};reader.readAsText(file)}
 function showFilePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style="display:flex;align-items:center;gap:.5rem;background:var(--surface);padding:.3rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;max-width:200px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 ${esc(selectedFileName)}</span><button onclick="clearFile()" style="background:#ef4444;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button></div>`}
 function clearFile(){selectedFileContent=null;selectedFileName=null;document.getElementById('fileInput').value='';document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML=''}
-async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d=await r.json();if(d.success){addConvToSidebar(d.id,'New conversation');await loadConv(d.id)}}
-function addConvToSidebar(id,title){const l=document.getElementById('convList'),e=l.querySelector('[style]');if(e)e.remove();const el=document.createElement('div');el.className='conv-item
+async function newConv(){const m=document.getElementById('modelSelect').value,p=document.getElementById('personaSelect').value;const r=await fetch('?api=new_conv',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:`model=${encodeURIComponent(m)}&persona=${encodeURIComponent(p)}`});const d
