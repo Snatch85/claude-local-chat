@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.28');
+define('VERSION',      '2.0.29');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -623,7 +623,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 .model-select,.persona-select{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:.3rem .6rem;font-size:.65rem;color:var(--muted);font-family:var(--font);cursor:pointer}
 .model-select:hover,.persona-select:hover{border-color:#404040;color:var(--text)}
 .model-select:focus,.persona-select:focus{outline:none;border-color:var(--accent)}
-.key-popup{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content-center;z-index:999}
+.key-popup{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:999}
 .key-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--br);padding:1.5rem;width:400px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
 .key-box h2{font-size:.9rem;margin-bottom:.3rem;font-family:var(--font);font-weight:500;color:#fff}
 .key-box p{font-size:.7rem;color:var(--muted);margin-bottom:1rem;line-height:1.5;font-family:var(--font)}
