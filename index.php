@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.33');
+define('VERSION',      '2.0.34');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -639,7 +639,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 @keyframes msgIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes toastIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 @keyframes toastOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(20px)}}
-.welcome-logo{width:48px;height:48px;background:var(--accent);border-radius:var(--br);display:flex;align-items:center;justify-content:center;font-size:1.2rem;box-shadow:0 4px 16px rgba(124,58,237,.2)}
+.welcome-logo{width:48px;height:48px;background:var(--accent);border-radius:var(--br);display:flex;align-items:center;justify-content-center;font-size:1.2rem;box-shadow:0 4px 16px rgba(124,58,237,.2)}
 .welcome h1{font-size:1.1rem;font-weight:500;color:var(--text)}
 .welcome p{font-size:.75rem;color:var(--muted);max-width:380px;line-height:1.6}
 .suggestions{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;max-width:560px}
