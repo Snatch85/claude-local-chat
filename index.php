@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.38');
+define('VERSION',      '2.0.39');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -385,7 +385,7 @@ if (isset($_GET['api'])) {
         }
         // Replace the last user message with multimodal content
         array_pop($api_messages);
-        $api_messages[] = ['role' => 'user', 'content' => $user_content];
+        $api_messages[] = ['role' => 'user', 'image' => $user_content];
 
         // Force pixtral-large-latest model for vision
         $model_to_use = 'pixtral-large-latest';
@@ -711,7 +711,7 @@ textarea::placeholder{color:var(--muted)}
 .sidebar-overlay.open{display:block;backdrop-filter:blur(4px)}
 .sidebar-toggle{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.8rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
 .model-badge{display:inline-block;padding:.15rem .4rem;border-radius:6px;font-size:.6rem;font-weight:500;background:rgba(124,58,237,.15);color:var(--accent);border:1px solid var(--accent)}
-.clear-conv-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0;margin-left:.25rem}
+.clear-conv-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:button;align-items:center;justify-content-center;flex-shrink:0;margin-left:.25rem}
 .clear-conv-btn:hover{background:var(--sidebar-hover)}
 .timestamp{font-size:.6rem;color:var(--muted);margin-top:.3rem;text-align:right}
 .focus-mode .sidebar,.focus-mode .topbar{display:none}
