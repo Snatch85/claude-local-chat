@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.56');
+define('VERSION',      '2.0.57');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -403,7 +403,7 @@ if (isset($_GET['api'])) {
             echo json_encode(['success' => false, 'error' => 'API ' . $http . ': ' . ($d['message'] ?? substr($raw,0,200))]);
             exit;
         }
-        $data  = json_decode($raw, true);
+        $data  = json_encode($raw, true);
         $reply = trim($data['choices'][0]['message']['content'] ?? '');
         if (!$reply) { echo json_encode(['success' => false, 'error' => 'Empty response']); exit; }
         db()->prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?,?,?)")->execute([$conv_id, 'assistant', $reply]);
@@ -709,7 +709,7 @@ textarea::placeholder{color:var(--muted)}
 .hamburger{display:none;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.9rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(38,38,38,.85);z-index:99}
 .sidebar-overlay.open{display:block;backdrop-filter:blur(4px)}
-.sidebar-toggle{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.8rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
+.sidebar-toggle{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.8rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0}
 .model-badge{display:inline-block;padding:.15rem .4rem;border-radius:6px;font-size:.6rem;font-weight:500;background:rgba(124,58,237,.15);color:var(--accent)}
 .clear-conv-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:button;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
 .clear-conv-btn:hover{background:var(--sidebar-hover)}
