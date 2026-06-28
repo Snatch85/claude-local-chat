@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.58');
+define('VERSION',      '2.0.59');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -594,7 +594,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 .new-chat-btn:hover{background:var(--sidebar-hover);border-color:#404040;color:#fff}
 .sidebar-logo{display:flex;align-items:center;gap:.5rem;padding:0 0 .75rem}
 .sidebar-logo{padding:0 .5rem .75rem}
-.sidebar-logo-icon{width:28px;height:28px;background:var(--accent);border-radius:var(--r);display:flex;align-items:center;justify-content-center;font-size:.8rem;font-weight:700;color:#fff}
+.sidebar-logo-icon{width:28px;height:28px;background:var(--accent);border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;color:#fff}
 .sidebar-logo span{font-size:.85rem;font-weight:600;color:#fff;letter-spacing:-.02em}
 .sidebar-logo small{font-size:.6rem;color:var(--muted);display:block;line-height:1;text-transform:uppercase;letter-spacing:.05em}
 .sidebar-section{padding:.6rem .8rem .3rem;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
@@ -704,12 +704,12 @@ textarea::placeholder{color:var(--muted)}
 .send-btn{background:var(--accent);border:none;color:#fff;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content-center;cursor:pointer;font-size:.8rem;transition:.1s;flex-shrink:0}
 .send-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}
 .send-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
-.msg-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0;margin-left:.25rem}
+.msg-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
 .msg-btn:hover{background:var(--sidebar-hover)}
 .hamburger{display:none;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.9rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(38,38,38,.85);z-index:99}
 .sidebar-overlay.open{display:block;backdrop-filter:blur(4px)}
-.sidebar-toggle{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.8rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0}
+.sidebar-toggle{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.8rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
 .model-badge{display:inline-block;padding:.15rem .4rem;border-radius:6px;font-size:.6rem;font-weight:500;background:rgba(124,58,237,.15);color:var(--accent)}
 .clear-conv-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:button;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
 .clear-conv-btn:hover{background:var(--sidebar-hover)}
@@ -793,7 +793,7 @@ textarea::placeholder{color:var(--muted)}
       <div id="filePreview" style="display:none;padding:.5rem .75rem;border-bottom:1px solid var(--border);gap:.5rem;flex-wrap:wrap"></div>
       <textarea id="msgInput" rows="1" placeholder="Ask anything... (Enter to send, Shift+Enter for new line)" onkeydown="handleKey(event)" oninput="autoResize(this);updateCharCount(this); updateTokensEstimate(this)" accesskey="n"></textarea>
       <div class="input-toolbar">
-        <span class="char-count" id="charCount">0 / <?= MAX_TOKENS ?> / 0</span>
+        <span class="char-count" id="charCount">0 / 0 / <?= MAX_TOKENS ?></span>
         <span class="input-hint-txt" id="convInfo" style="display:none">Select or create a conversation</span>
         <input type="file" id="imageInput" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none" onchange="handleImageSelect(event)">
         <button class="send-btn" id="attachBtn" onclick="document.getElementById('imageInput').click()" title="Attach image (Ctrl+I)" type="button">📎</button>
@@ -945,4 +945,4 @@ function handleImageSelect(event){const file=event.target.files[0];if(!file)retu
 function showImagePreview(){const container=document.getElementById('imagePreview');container.style.display='flex';container.innerHTML=`<div style="position:relative"><img src="${selectedImageBase64}" style="height:60px;border-radius:4px;border:1px solid var(--border)"><button onclick="clearImage()" style="position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center">×</button></div>`}
 function clearImage(){selectedImageBase64=null;selectedImageType=null;document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML='';document.getElementById('imageInput').value=''}
 function handleFileSelect(event){const file=event.target.files[0];if(!file)return;const validExts=['.php','.js','.ts','.py','.html','.css','.txt','.csv','.json','.md','.sql'];const ext='.'+file.name.split('.').pop().toLowerCase();if(!validExts.includes(ext)){showToast('Please select a valid file type (.php, .js, .ts, .py, .html, .css, .txt, .csv, .json, .md, .sql)');return}if(file.size>512000){showToast('File size exceeds 500KB limit');return}const reader=new FileReader();reader.onload=function(e){selectedFileContent=e.target.result;selectedFileName=file.name;showFilePreview()};reader.readAsText(file)}
-function showFilePreview(){const container=document.getElementById('filePreview');container.style.display='flex';container.innerHTML=`<div style="display:flex;align-items:center;gap:.5rem;background:var(--surface);padding:.3rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;max-width:200px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 ${esc(selectedFileName)}</span><button onclick="clearFile()" style="background:#ef4444;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:.6rem;cursor:pointer;display:flex;align-items:center
+function showFilePreview(){const container=document.getElementById('filePreview');container.style.display='flex';container.innerHTML=`<div style="display:flex;align-items:center;gap:.5rem;background:var(--surface);padding:.3rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;max-width:200px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 ${esc(selectedFileName)}</span><button onclick="clearFile()" style="background:#ef4444;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:.6rem;cursor:pointer;display:flex;align-items:center;
