@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.85');
+define('VERSION',      '2.0.86');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -594,7 +594,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 .new-chat-btn:hover{background:var(--sidebar-hover);border-color:#404040;color:#fff}
 .sidebar-logo{display:flex;align-items:center;gap:.5rem;padding:0 0 .75rem}
 .sidebar-logo{padding:0 .5rem .75rem}
-.sidebar-logo-icon{width:28px;height:28px;background:var(--accent);border-radius:var(--r);display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;color:#fff}
+.sidebar-logo-icon{width:28px;height:28px;background:var(--accent);border-radius:var(--r);display:flex;align-items:center;justify-content-center;font-size:.8rem;font-weight:700;color:#fff}
 .sidebar-logo span{font-size:.85rem;font-weight:600;color:#fff;letter-spacing:-.02em}
 .sidebar-logo small{font-size:.6rem;color:var(--muted);display:block;line-height:1;text-transform:uppercase;letter-spacing:.05em}
 .sidebar-section{padding:.6rem .8rem .3rem;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.1em}
