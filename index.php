@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.87');
+define('VERSION',      '2.0.88');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -624,7 +624,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 .model-select,.persona-select{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:.3rem .6rem;font-size:.65rem;color:var(--muted);font-family:var(--font);cursor:pointer}
 .model-select:hover,.persona-select:hover{border-color:#404040;color:var(--text)}
 .model-select:focus,.persona-select:focus{outline:none;border-color:var(--accent)}
-.key-popup{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:999}
+.key-popup{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content-center;z-index:999}
 .key-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--br);padding:1.5rem;width:400px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
 .key-box h2{font-size:.9rem;margin-bottom:.3rem;font-family:var(--font);font-weight:500;color:#fff}
 .key-box p{font-size:.7rem;color:var(--muted);margin-bottom:1rem;line-height:1.5;font-family:var(--font)}
@@ -650,7 +650,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 .chat-area::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 .msg-group{max-width:840px;margin:0 auto;padding:.3rem 1rem}
 .msg{display:flex;gap:.75rem;padding:.6rem 0;animation:msgIn .25s ease;transition:opacity .15s}
-.msg-avatar{width:28px;height:28px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.7rem;margin-top:2px;font-family:var(--font);font-weight:600}
+.msg-avatar{width:28px;height:28px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content-center;font-size:.7rem;margin-top:2px;font-family:var(--font);font-weight:600}
 .msg-avatar.user{background:var(--user-bg);color:var(--muted);border:1px solid var(--border)}
 .msg-avatar.ai{background:var(--accent);color:#fff}
 .msg-content{flex:1;min-width:0}
@@ -704,7 +704,7 @@ textarea::placeholder{color:var(--muted)}
 .send-btn{background:var(--accent);border:none;color:#fff;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content-center;cursor:pointer;font-size:.8rem;transition:.1s;flex-shrink:0}
 .send-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}
 .send-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
-.msg-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
+.msg-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0;margin-left:.25rem}
 .msg-btn:hover{background:var(--sidebar-hover)}
 .hamburger{display:none;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.9rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(38,38,38,.85);z-index:99}
@@ -785,7 +785,7 @@ textarea::placeholder{color:var(--muted)}
   </div>
   <div id="chatScreen" style="display:none;flex:1;overflow:hidden;flex-direction:column;position:relative">
     <div class="chat-area" id="chatArea"><div class="msg-group" id="msgContainer"></div></div>
-    <div id="dragOverlay" style="display:none;position:absolute;inset:0;background:rgba(38,38,38,.85);border:2px dashed var(--accent);border-radius:var(--br);margin:1rem;z-index:100;align-items:center;justify-content:center;pointer-events:none"><div style="text-align:center;color:var(--text);font-size:.9rem;font-family:var(--font)"><div style="font-size:2rem;margin-bottom:.5rem">🖼️</div>Drop image here</div></div>
+    <div id="dragOverlay" style="display:none;position:absolute;inset:0;background:rgba(38,38,38,.85);border:2px dashed var(--accent);border-radius:var(--br);margin:1rem;z-index:100;align-items:center;justify-content-center;pointer-events:none"><div style="text-align:center;color:var(--text);font-size:.9rem;font-family:var(--font)"><div style="font-size:2rem;margin-bottom:.5rem">🖼️</div>Drop image here</div></div>
   </div>
   <div class="input-zone">
     <div class="input-inner">
