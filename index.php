@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.93');
+define('VERSION',      '2.0.94');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -701,7 +701,7 @@ textarea::placeholder{color:var(--muted)}
 .input-hint-txt{font-size:.62rem;color:var(--muted);flex:1;font-family:var(--font)}
 .char-count{font-size:.6rem;color:var(--muted);flex:1;font-family:var(--font)}
 .char-count.warn{color:#f59e0b}.char-count.over{color:#ef4444;font-weight:600}
-.send-btn{background:var(--accent);border:none;color:#fff;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content-center;cursor:pointer;font-size:.8rem;transition:.1s;flex-shrink:0}
+.send-btn{background:var(--accent);border:none;color:#fff;width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.8rem;transition:.1s;flex-shrink:0}
 .send-btn:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px)}
 .send-btn:disabled{opacity:.3;cursor:not-allowed;transform:none}
 .msg-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0;margin-left:.25rem}
