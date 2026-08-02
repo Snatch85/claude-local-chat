@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.94');
+define('VERSION',      '2.0.95');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -385,7 +385,7 @@ if (isset($_GET['api'])) {
         }
         // Replace the last user message with multimodal content
         array_pop($api_messages);
-        $api_messages[] = ['role' => 'user', 'image' => $user_content];
+        $api_messages[] = ['role' => 'user', 'content' => $user_content];
 
         // Force pixtral-large-latest model for vision
         $model_to_use = 'pixtral-large-latest';
@@ -650,7 +650,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 .chat-area::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 .msg-group{max-width:840px;margin:0 auto;padding:.3rem 1rem}
 .msg{display:flex;gap:.75rem;padding:.6rem 0;animation:msgIn .25s ease;transition:opacity .15s}
-.msg-avatar{width:28px;height:28px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-center:center;font-size:.7rem;margin-top:2px;font-family:var(--font);font-weight:600}
+.msg-avatar{width:28px;height:28px;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify:center;font-size:.7rem;margin-top:2px;font-family:var(--font);font-weight:600}
 .msg-avatar.user{background:var(--user-bg);color:var(--muted);border:1px solid var(--border)}
 .msg-avatar.ai{background:var(--accent);color:#fff}
 .msg-content{flex:1;min-width:0}
@@ -689,7 +689,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 .streaming-text{white-space:pre-wrap;min-width:0;animation:textStream .3s steps(40,1) forwards}
 @keyframes textStream{from{opacity:0;width:0}to{opacity:1}}
 .finalized{opacity:1!important}
-.msg-copy-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.65rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0;margin-top:.3rem;font-family:var(--font);transition:.15s}
+.msg-copy-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.65rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-top:.3rem;font-family:var(--font);transition:.15s}
 .msg-copy-btn:hover{color:var(--accent);border-color:var(--accent)}
 .msg:hover .msg-copy-btn{display:flex;align-items:center;gap:.25rem}
 .input-zone{border-top:1px solid var(--border);background:var(--surface);padding:.8rem 1rem;flex-shrink:0;transition:background .25s ease}
@@ -946,3 +946,5 @@ function showImagePreview(){const container=document.getElementById('imagePrevie
 function clearImage(){selectedImageBase64=null;selectedImageType=null;document.getElementById('imagePreview').style.display='none';document.getElementById('imagePreview').innerHTML='';document.getElementById('imageInput').value=''}
 function handleFileSelect(event){const file=event.target.files[0];if(!file)return;const validExts=['.php','.js','.ts','.py','.html','.css','.txt','.csv','.json','.md','.sql'];const ext='.'+file.name.split('.').pop().toLowerCase();if(!validExts.includes(ext)){showToast('Please select a valid file type (.php, .js, .ts, .py, .html, .css, .txt, .csv, .json, .md, .sql)');return}if(file.size>512000){showToast('File size exceeds 500KB limit');return}const reader=new FileReader();reader.onload=function(e){selectedFileContent=e.target.result;selectedFileName=file.name;showFilePreview()};reader.readAsText(file)}
 function showFilePreview(){const container=document.getElementById('filePreview');container.style.display='flex';container.innerHTML=`<div style="display:flex;align-items:center;gap:.5rem;background:var(--surface);padding:.3rem .5rem;border-radius:4px;border:1px solid var(--border);font-size:.7rem;max-width:200px"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📄 ${esc(selectedFileName)}</span><button onclick="clearFile()" style="background:#ef4444;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:.6rem;cursor:pointer;display:flex;align-items:center`
+
+function
