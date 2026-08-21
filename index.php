@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.113');
+define('VERSION',      '2.0.114');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -643,6 +643,8 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 @keyframes msgIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 @keyframes toastIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
 @keyframes toastOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(20px)}}
+@keyframes dot{0%,60%,100%{opacity:.55;transform:scale(1)}30%{opacity:1;transform:scale(1.2)}}
+@keyframes textStream{from{opacity:0;width:0}to{opacity:1}}
 .welcome-logo{width:48px;height:48px;background:var(--accent);border-radius:var(--br);display:flex;align-items:center;justify-content:center;font-size:1.2rem;box-shadow:0 4px 16px rgba(124,58,237,.2)}
 .welcome h1{font-size:1.1rem;font-weight:500;color:var(--text)}
 .welcome p{font-size:.75rem;color:var(--muted);max-width:380px;line-height:1.6}
@@ -689,9 +691,7 @@ body.sidebar-collapsed .hamburger{transform:rotate(180deg)}
 .thinking-dots span{width:5px;height:5px;background:var(--accent);border-radius:50%;opacity:.55;animation:dot .85s infinite}
 .thinking-dots span:nth-child(2){animation-delay:.17s}
 .thinking-dots span:nth-child(3){animation-delay:.34s}
-@keyframes dot{0%,60%,100%{opacity:.55;transform:scale(1)}30%{opacity:1;transform:scale(1.2)}}
 .streaming-text{white-space:pre-wrap;min-width:0;animation:textStream .3s steps(40,1) forwards}
-@keyframes textStream{from{opacity:0;width:0}to{opacity:1}}
 .finalized{opacity:1!important}
 .msg-copy-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.65rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-top:.3rem;font-family:var(--font);transition:.15s}
 .msg-copy-btn:hover{color:var(--accent);border-color:var(--accent)}
