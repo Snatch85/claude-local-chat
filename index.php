@@ -4,7 +4,7 @@
  * Design minimaliste sombre inspiré du terminal Claude Code
  */
 
-define('VERSION',      '2.0.119');
+define('VERSION',      '2.0.120');
 define('API_URL',      'https://api.mistral.ai/v1/chat/completions');
 define('DB_FILE',      __DIR__ . '/chat.sqlite');
 define('MAX_TOKENS',   8192);
@@ -722,7 +722,7 @@ textarea::placeholder{color:var(--muted)}
 .focus-mode .main{margin-left:0}
 .focus-mode .chat-area{padding-top:1rem}
 .focus-mode .input-zone{padding-bottom:1rem}
-.regenerate-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0;margin-left:.25rem}
+.regenerate-btn{display:none;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text);width:28px;height:28px;font-size:.7rem;cursor:pointer;align-items:center;justify-content-center;flex-shrink:0;margin-left:.25rem}
 .regenerate-btn:hover{background:var(--sidebar-hover)}
 @media(max-width:720px){
   .sidebar{display:flex;position:fixed;left:-260px;top:0;bottom:0;z-index:100;transition:left .25s cubic-bezier(.4,.0,.23,1);width:260px}
